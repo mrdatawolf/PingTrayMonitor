@@ -75,6 +75,7 @@ if "!NODE_VER!"=="" (
 echo.
 if !ERRORS! GTR 0 (
   echo !ERRORS! check^(s^) failed. Fix the issues above and try again.
+  
   pause
   exit /b 1
 )
