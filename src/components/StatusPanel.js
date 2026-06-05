@@ -159,14 +159,6 @@ function ConnectionRow({ item, now }) {
           <span style={{ fontSize: 12, color: '#d9d9d9', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {payload.label || payload.id}
           </span>
-          {payload.available !== undefined && (
-            <Tag
-              color={payload.available ? 'success' : 'error'}
-              style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', flexShrink: 0 }}
-            >
-              {payload.available ? 'UP' : 'DOWN'}
-            </Tag>
-          )}
         </div>
         <div style={{ fontSize: 10, color: '#595959', marginTop: 2, display: 'flex', gap: 10 }}>
           {payload.latencyMs != null && (
