@@ -74,7 +74,7 @@ if "!NODE_VER!"=="" (
 :done
 echo.
 if !ERRORS! GTR 0 (
-  echo !ERRORS! check(s) failed. Fix the issues above and try again.
+  echo !ERRORS! check^(s^) failed. Fix the issues above and try again.
   pause
   exit /b 1
 )
@@ -82,3 +82,10 @@ if !ERRORS! GTR 0 (
 echo All checks passed. Starting...
 echo.
 call npm start
+if errorlevel 1 (
+  echo.
+  echo [FAIL] npm start exited with an error ^(exit code %errorlevel%^).
+  echo        Check the output above for details.
+  pause
+  exit /b 1
+)

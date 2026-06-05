@@ -7,6 +7,14 @@ import { icons } from './icons';
 
 if (squirrelStartup) app.quit();
 
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught exception:', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL] Unhandled promise rejection:', reason);
+});
+
 // ─── Settings ────────────────────────────────────────────────────────────────
 
 const SETTINGS_FILE = path.join(app.getPath('userData'), 'settings.json');
