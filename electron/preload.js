@@ -1,0 +1,19 @@
+'use strict';
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('electron', {
+  // Live pushes from main process
+  onItems: (cb) => ipcRenderer.on('mqtt:items', (_e, items) => cb(items)),
+  onConnection: (cb) => ipcRenderer.on('mqtt:connection', (_e, state) => cb(state)),
+
+  // One-time fetch for initial render
+  getItems: () => ipcRenderer.invoke('items:get'),
+
+  // Settings
+  getSettings: () => ipcRenderer.invoke('settings:get'),
+  saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
+
+  removeItem: (topicKey) => ipcRenderer.invoke('items:remove', topicKey),
+
+  openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
+});
