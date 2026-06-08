@@ -2,3 +2,9 @@ node_modules
 .env
 .claude
 distribute/
+/out/make
+/.vite/build
+/.vite/renderer
+/out
+/.vite/build
+/.vite/build
