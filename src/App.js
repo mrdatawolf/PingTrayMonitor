@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ConfigProvider, theme } from 'antd';
 import StatusPanel from './components/StatusPanel';
+import BlockedPanel from './components/BlockedPanel';
 import Settings from './components/Settings';
 import { useMonitorStore, useSettingsStore } from './store';
 import { getColors } from './theme';
@@ -17,6 +18,8 @@ export default function App() {
   const [view, setView] = useState('status');
   const setItems = useMonitorStore((s) => s.setItems);
   const setConnectionState = useMonitorStore((s) => s.setConnectionState);
+  const setRemovedTopics = useMonitorStore((s) => s.setRemovedTopics);
+  const removedTopics = useMonitorStore((s) => s.removedTopics);
   const setSettings = useSettingsStore((s) => s.setSettings);
   const setTheme = useSettingsStore((s) => s.setTheme);
   const mode = useSettingsStore((s) => s.theme);
@@ -34,9 +37,10 @@ export default function App() {
     aggregate === 'green'  ? '#52c41a' : '#595959';
 
   useEffect(() => {
-    window.electron?.getItems().then(({ items, connectionState }) => {
+    window.electron?.getItems().then(({ items, connectionState, removedTopics }) => {
       setItems(items || {});
       setConnectionState(connectionState);
+      setRemovedTopics(removedTopics || []);
     });
     window.electron?.getSettings().then((s) => {
       if (s) setSettings(s);
@@ -47,6 +51,7 @@ export default function App() {
   useEffect(() => {
     window.electron?.onItems((incoming) => setItems(incoming));
     window.electron?.onConnection((state) => setConnectionState(state));
+    window.electron?.onRemovedTopics((topics) => setRemovedTopics(topics));
   }, []);
 
   useEffect(() => {
@@ -75,23 +80,50 @@ export default function App() {
           <span style={{ fontSize: 14, fontWeight: 700, color: c.textPrimary, flex: 1 }}>
             Ping Monitor
           </span>
+          {/* Blocked items button — only shown when there are blocked items or we're on that view */}
+          {(view === 'blocked' || removedTopics.length > 0) && (
+            <button
+              onClick={() => setView(view === 'blocked' ? 'status' : 'blocked')}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: view === 'blocked' ? c.textPrimary : c.textTertiary,
+                fontSize: 11, padding: '0 6px',
+                WebkitAppRegion: 'no-drag',
+                display: 'flex', alignItems: 'center', gap: 3,
+              }}
+              title={view === 'blocked' ? 'Back to status' : 'Blocked items'}
+            >
+              <span style={{ fontSize: 14, lineHeight: 1 }}>⊗</span>
+              {removedTopics.length > 0 && (
+                <span style={{
+                  fontSize: 10,
+                  background: c.borderSubtle,
+                  borderRadius: 8,
+                  padding: '1px 5px',
+                  color: c.textSecondary,
+                }}>
+                  {removedTopics.length}
+                </span>
+              )}
+            </button>
+          )}
           <button
-            onClick={() => setView(view === 'status' ? 'settings' : 'status')}
+            onClick={() => setView(view === 'settings' ? 'status' : 'settings')}
             style={{
               background: 'none', border: 'none', cursor: 'pointer',
               color: c.textSecondary, fontSize: 18, padding: '0 4px',
               WebkitAppRegion: 'no-drag',
             }}
-            title={view === 'status' ? 'Settings' : 'Back'}
+            title={view === 'settings' ? 'Back' : 'Settings'}
           >
-            {view === 'status' ? '⚙' : '←'}
+            {view === 'settings' ? '←' : '⚙'}
           </button>
         </header>
 
         <div className="app-content" style={{ flex: 1, overflow: 'auto' }}>
-          {view === 'status'
-            ? <StatusPanel />
-            : <Settings onSaved={() => setView('status')} />}
+          {view === 'status'   && <StatusPanel />}
+          {view === 'blocked'  && <BlockedPanel />}
+          {view === 'settings' && <Settings onSaved={() => setView('status')} />}
         </div>
       </div>
     </ConfigProvider>
