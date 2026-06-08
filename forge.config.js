@@ -1,5 +1,8 @@
+const fs = require('fs');
+const path = require('path');
 const { FusesPlugin } = require('@electron-forge/plugin-fuses');
 const { FuseV1Options, FuseVersion } = require('@electron/fuses');
+const packageJson = require('./package.json');
 
 module.exports = {
   packagerConfig: {
@@ -48,4 +51,25 @@ module.exports = {
       [FuseV1Options.OnlyLoadAppFromAsar]: false,
     }),
   ],
+  hooks: {
+    postMake: async (forgeConfig, makeResults) => {
+      const distributeDir = path.resolve(__dirname, 'distribute');
+      fs.mkdirSync(distributeDir, { recursive: true });
+
+      const versionTag = packageJson.version.replace(/\./g, '_');
+
+      for (const result of makeResults) {
+        if (result.platform !== 'win32') continue;
+
+        const setupExe = result.artifacts.find((artifact) => artifact.toLowerCase().endsWith('.exe'));
+        if (!setupExe) continue;
+
+        const dest = path.join(distributeDir, `PingTray-${versionTag}.exe`);
+        fs.copyFileSync(setupExe, dest);
+        console.log(`[postMake] Copied installer to ${dest}`);
+      }
+
+      return makeResults;
+    },
+  },
 };

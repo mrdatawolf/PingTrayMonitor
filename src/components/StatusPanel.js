@@ -4,7 +4,7 @@ import {
   CheckCircleFilled, WarningFilled, CloseCircleFilled,
   ClockCircleOutlined,
 } from '@ant-design/icons';
-import { useMonitorStore } from '../store';
+import { useMonitorStore, useThemeColors } from '../store';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -62,25 +62,14 @@ function computeConnectionStatus(item, now) {
   return 'red';
 }
 
+// Saturated status colors stay constant across themes — only the chrome
+// (panels, borders, text) needs to adapt; see STATUS_BG/STATUS_BORDER below
+// which are theme-dependent and computed from the palette at render time.
 const STATUS_COLORS = {
   green:  '#52c41a',
   yellow: '#faad14',
   red:    '#ff4d4f',
   grey:   '#595959',
-};
-
-const STATUS_BG = {
-  green:  '#162312',
-  yellow: '#2b2111',
-  red:    '#2a1215',
-  grey:   '#1a1a1a',
-};
-
-const STATUS_BORDER = {
-  green:  '#274916',
-  yellow: '#443111',
-  red:    '#431418',
-  grey:   '#2a2a2a',
 };
 
 const TYPE_CHIP_LABELS = {
@@ -110,11 +99,12 @@ function SmallDot({ status }) {
 // ─── Grey / Black states ───────────────────────────────────────────────────────
 
 function GreyPanel() {
+  const c = useThemeColors();
   return (
-    <div style={{ padding: 24, textAlign: 'center', color: '#595959' }}>
+    <div style={{ padding: 24, textAlign: 'center', color: c.textTertiary }}>
       <span className="status-dot grey" style={{ width: 44, height: 44, margin: '0 auto 16px', display: 'block' }} />
-      <p style={{ fontSize: 13, color: '#8c8c8c' }}>Connecting…</p>
-      <p style={{ fontSize: 11, marginTop: 8, color: '#595959' }}>
+      <p style={{ fontSize: 13, color: c.textSecondary }}>Connecting…</p>
+      <p style={{ fontSize: 11, marginTop: 8, color: c.textTertiary }}>
         Waiting for data from MQTT broker.
       </p>
     </div>
@@ -122,13 +112,14 @@ function GreyPanel() {
 }
 
 function BlackPanel() {
+  const c = useThemeColors();
   return (
     <div style={{ padding: 24, textAlign: 'center' }}>
       <span className="status-dot black" style={{ width: 44, height: 44, margin: '0 auto 16px', display: 'block' }} />
-      <div style={{ fontSize: 14, fontWeight: 600, color: '#595959', marginBottom: 8 }}>
+      <div style={{ fontSize: 14, fontWeight: 600, color: c.textTertiary, marginBottom: 8 }}>
         Broker Unreachable
       </div>
-      <p style={{ fontSize: 12, color: '#434343', lineHeight: 1.6 }}>
+      <p style={{ fontSize: 12, color: c.textFaint, lineHeight: 1.6 }}>
         Cannot connect to the MQTT broker.<br />Check Settings and verify the broker is online.
       </p>
     </div>
@@ -138,6 +129,7 @@ function BlackPanel() {
 // ─── Delete button (hover-reveal) ────────────────────────────────────────────
 
 function DeleteButton({ topicKey }) {
+  const c = useThemeColors();
   const [hovered, setHovered] = useState(false);
   const [confirming, setConfirming] = useState(false);
 
@@ -160,7 +152,7 @@ function DeleteButton({ topicKey }) {
       style={{
         background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px',
         fontSize: 12, lineHeight: 1, flexShrink: 0, marginLeft: 2,
-        color: confirming ? '#ff4d4f' : hovered ? '#8c8c8c' : '#3a3a3a',
+        color: confirming ? '#ff4d4f' : hovered ? c.textSecondary : c.border,
         transition: 'color 0.15s',
         WebkitAppRegion: 'no-drag',
       }}
@@ -173,6 +165,7 @@ function DeleteButton({ topicKey }) {
 // ─── Connection item row ──────────────────────────────────────────────────────
 
 function ConnectionRow({ item, now }) {
+  const c = useThemeColors();
   const status = computeConnectionStatus(item, now);
   const { payload } = item;
   const type = payload.type;
@@ -238,12 +231,12 @@ function ConnectionRow({ item, now }) {
   return (
     <div style={{
       display: 'flex', alignItems: 'flex-start', gap: 10,
-      padding: '7px 0', borderBottom: '1px solid #1f1f1f',
+      padding: '7px 0', borderBottom: `1px solid ${c.rowBorder}`,
     }}>
       <SmallDot status={status} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 12, color: '#d9d9d9', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span style={{ fontSize: 12, color: c.textBody, fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {payload.label || payload.id}
           </span>
           {payload.available !== undefined && (
@@ -256,7 +249,7 @@ function ConnectionRow({ item, now }) {
             </Tag>
           )}
         </div>
-        <div style={{ fontSize: 10, color: '#595959', marginTop: 2, display: 'flex', gap: 10 }}>
+        <div style={{ fontSize: 10, color: c.textTertiary, marginTop: 2, display: 'flex', gap: 10 }}>
           {detail}
         </div>
       </div>
@@ -274,18 +267,19 @@ const PROCESS_STATUS_CONFIG = {
 };
 
 function ProcessRow({ item }) {
+  const c = useThemeColors();
   const { payload, sourceLabel } = item;
   const cfg = PROCESS_STATUS_CONFIG[payload.status] || { label: 'Unknown' };
 
   return (
     <div style={{
       display: 'flex', alignItems: 'flex-start', gap: 10,
-      padding: '7px 0', borderBottom: '1px solid #1f1f1f',
+      padding: '7px 0', borderBottom: `1px solid ${c.rowBorder}`,
     }}>
       <SmallDot status={payload.status} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 12, color: '#d9d9d9', fontWeight: 500, flex: 1 }}>
+          <span style={{ fontSize: 12, color: c.textBody, fontWeight: 500, flex: 1 }}>
             {sourceLabel}
           </span>
           <Tag
@@ -295,12 +289,12 @@ function ProcessRow({ item }) {
             {cfg.label}
           </Tag>
         </div>
-        <div style={{ fontSize: 10, color: '#595959', marginTop: 2, display: 'flex', gap: 10 }}>
-          {payload.stage && <span style={{ color: '#8c8c8c' }}>stage: {payload.stage}</span>}
+        <div style={{ fontSize: 10, color: c.textTertiary, marginTop: 2, display: 'flex', gap: 10 }}>
+          {payload.stage && <span style={{ color: c.textSecondary }}>stage: {payload.stage}</span>}
           <span>checked: {formatRelative(payload.checkedAt)}</span>
         </div>
         {payload.detail && (
-          <div style={{ fontSize: 10, color: '#8c8c8c', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ fontSize: 10, color: c.textSecondary, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {payload.detail}
           </div>
         )}
@@ -313,6 +307,7 @@ function ProcessRow({ item }) {
 // ─── Source section ───────────────────────────────────────────────────────────
 
 function SourceSection({ label, sourceItems, now, isLast }) {
+  const c = useThemeColors();
   const statuses = sourceItems.map(item =>
     item.messageType === 'connection_status'
       ? computeConnectionStatus(item, now)
@@ -338,13 +333,13 @@ function SourceSection({ label, sourceItems, now, isLast }) {
       <div style={{
         display: 'flex', alignItems: 'center', gap: 6,
         padding: '8px 0 4px',
-        borderBottom: '1px solid #252525',
+        borderBottom: `1px solid ${c.borderFaint}`,
       }}>
         <SmallDot status={agg} />
-        <span style={{ flex: 1, fontSize: 10, color: '#8c8c8c', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>
+        <span style={{ flex: 1, fontSize: 10, color: c.textSecondary, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>
           {label}
         </span>
-        <span style={{ fontSize: 10, color: '#434343' }}>
+        <span style={{ fontSize: 10, color: c.textFaint }}>
           {sourceItems.length} check{sourceItems.length !== 1 ? 's' : ''}
         </span>
       </div>
@@ -360,6 +355,7 @@ function SourceSection({ label, sourceItems, now, isLast }) {
 // ─── Main panel ───────────────────────────────────────────────────────────────
 
 export default function StatusPanel() {
+  const c = useThemeColors();
   const { items, connectionState } = useMonitorStore();
 
   const [now, setNow] = useState(Date.now());
@@ -394,9 +390,9 @@ export default function StatusPanel() {
     allStatuses.includes('yellow') ? 'yellow' :
     allStatuses.length             ? 'green' : 'grey';
 
-  const heroColor  = STATUS_COLORS[aggregate] || '#595959';
-  const heroBg     = STATUS_BG[aggregate]     || '#1a1a1a';
-  const heroBorder = STATUS_BORDER[aggregate] || '#2a2a2a';
+  const heroColor  = STATUS_COLORS[aggregate]   || c.textTertiary;
+  const heroBg     = c.statusBg[aggregate]      || c.panelBg;
+  const heroBorder = c.statusBorder[aggregate]  || c.border;
 
   const heroLabels = { green: 'All Systems OK', yellow: 'Degraded', red: 'Issues Detected', grey: 'No Data' };
 
@@ -419,7 +415,7 @@ export default function StatusPanel() {
           <div style={{ fontSize: 18, fontWeight: 700, color: heroColor, lineHeight: 1.2 }}>
             {heroLabels[aggregate]}
           </div>
-          <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 4, display: 'flex', gap: 10 }}>
+          <div style={{ fontSize: 11, color: c.textSecondary, marginTop: 4, display: 'flex', gap: 10 }}>
             {greenCount  > 0 && <span style={{ color: '#52c41a' }}>{greenCount} OK</span>}
             {yellowCount > 0 && <span style={{ color: '#faad14' }}>{yellowCount} degraded</span>}
             {redCount    > 0 && <span style={{ color: '#ff4d4f' }}>{redCount} down</span>}

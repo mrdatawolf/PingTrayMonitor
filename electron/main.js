@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, ipcMain, shell, Notification } from 'electron';
+import { app, BrowserWindow, Tray, Menu, ipcMain, shell, Notification, screen } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import mqtt from 'mqtt';
@@ -20,8 +20,10 @@ process.on('unhandledRejection', (reason) => {
 const SETTINGS_FILE = path.join(app.getPath('userData'), 'settings.json');
 
 const DEFAULT_SETTINGS = {
+  theme: 'dark',
   mqttHost: '24.121.212.206',
   mqttPort: 1883,
+  mqttWsPort: 9001,
   mqttUsername: '',
   mqttPassword: '',
   sources: [
@@ -53,6 +55,33 @@ function loadSettings() {
 function saveSettings(settings) {
   fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
   fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+}
+
+// ─── Autostart (launch at login) ─────────────────────────────────────────────
+
+// Squirrel.Windows installs land in a versioned `app-x.y.z` folder and update
+// in place, so login items must point at the stable `Update.exe` shim rather
+// than the current version's exe — see Squirrel.Windows auto-startup docs.
+function loginItemSettingsFor(openAtLogin) {
+  if (process.platform !== 'win32') return { openAtLogin };
+
+  const appFolder = path.dirname(process.execPath);
+  const updateExe = path.resolve(appFolder, '..', 'Update.exe');
+  const exeName = path.basename(process.execPath);
+
+  if (fs.existsSync(updateExe)) {
+    return { openAtLogin, path: updateExe, args: ['--processStart', `"${exeName}"`] };
+  }
+  return { openAtLogin };
+}
+
+function getAutostart() {
+  return app.getLoginItemSettings(loginItemSettingsFor(false)).openAtLogin;
+}
+
+function setAutostart(enabled) {
+  app.setLoginItemSettings(loginItemSettingsFor(enabled));
+  return getAutostart();
 }
 
 // ─── App state ────────────────────────────────────────────────────────────────
@@ -299,9 +328,18 @@ function updateTray(status) {
 // ─── Main window ──────────────────────────────────────────────────────────────
 
 function createWindow() {
+  // Frameless tray-anchored popup: not user-resizable (resizing would fight
+  // the tray-relative repositioning in showWindow), so size it generously
+  // relative to the display instead of using a fixed height.
+  const trayBounds = tray ? tray.getBounds() : null;
+  const display = trayBounds && trayBounds.width
+    ? screen.getDisplayNearestPoint({ x: trayBounds.x, y: trayBounds.y })
+    : screen.getPrimaryDisplay();
+  const height = Math.round(display.workAreaSize.height * 0.9);
+
   mainWindow = new BrowserWindow({
     width: 460,
-    height: 560,
+    height,
     resizable: false,
     skipTaskbar: true,
     show: false,
@@ -429,3 +467,13 @@ ipcMain.handle('items:remove', (_e, topicKey) => {
 });
 
 ipcMain.handle('shell:openExternal', (_e, url) => shell.openExternal(url));
+
+ipcMain.handle('autostart:get', () => getAutostart());
+ipcMain.handle('autostart:set', (_e, enabled) => ({ ok: true, enabled: setAutostart(!!enabled) }));
+
+ipcMain.handle('theme:get', () => settings.theme || 'dark');
+ipcMain.handle('theme:set', (_e, mode) => {
+  settings = { ...settings, theme: mode === 'light' ? 'light' : 'dark' };
+  saveSettings(settings);
+  return { ok: true, theme: settings.theme };
+});

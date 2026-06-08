@@ -10,5 +10,11 @@ contextBridge.exposeInMainWorld("electron", {
   getSettings: () => ipcRenderer.invoke("settings:get"),
   saveSettings: (settings) => ipcRenderer.invoke("settings:save", settings),
   removeItem: (topicKey) => ipcRenderer.invoke("items:remove", topicKey),
+  // Launch at login
+  getAutostart: () => ipcRenderer.invoke("autostart:get"),
+  setAutostart: (enabled) => ipcRenderer.invoke("autostart:set", enabled),
+  // Light / dark mode
+  getTheme: () => ipcRenderer.invoke("theme:get"),
+  setTheme: (mode) => ipcRenderer.invoke("theme:set", mode),
   openExternal: (url) => ipcRenderer.invoke("shell:openExternal", url)
 });
