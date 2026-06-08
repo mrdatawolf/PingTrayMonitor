@@ -1,18 +1,44 @@
 import React, { useState, useEffect } from 'react';
-import { Form, Input, InputNumber, Button, Divider, message, Select } from 'antd';
-import { SaveOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons';
+import { Form, Input, InputNumber, Button, Divider, message, Select, Switch, Segmented } from 'antd';
+import { SaveOutlined, PlusOutlined, DeleteOutlined, MoonOutlined, SunOutlined } from '@ant-design/icons';
 import { useSettingsStore } from '../store';
+import { getColors } from '../theme';
 
 export default function Settings({ onSaved }) {
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  const [autostart, setAutostartState] = useState(false);
+  const [autostartLoading, setAutostartLoading] = useState(false);
   const setStoreSettings = useSettingsStore((s) => s.setSettings);
   const storeSettings = useSettingsStore((s) => s);
+  const mode = useSettingsStore((s) => s.theme);
+  const setTheme = useSettingsStore((s) => s.setTheme);
+  const c = getColors(mode);
+
+  useEffect(() => {
+    window.electron.getAutostart().then(setAutostartState);
+  }, []);
+
+  async function toggleAutostart(checked) {
+    setAutostartLoading(true);
+    try {
+      const result = await window.electron.setAutostart(checked);
+      setAutostartState(result.enabled);
+    } finally {
+      setAutostartLoading(false);
+    }
+  }
+
+  async function changeTheme(value) {
+    const result = await window.electron.setTheme(value);
+    setTheme(result.theme);
+  }
 
   useEffect(() => {
     form.setFieldsValue({
       mqttHost:     storeSettings.mqttHost,
       mqttPort:     storeSettings.mqttPort,
+      mqttWsPort:   storeSettings.mqttWsPort,
       mqttUsername: storeSettings.mqttUsername,
       mqttPassword: storeSettings.mqttPassword,
       sources: (storeSettings.sources || []).map((s) => ({
@@ -40,6 +66,7 @@ export default function Settings({ onSaved }) {
     const newSettings = {
       mqttHost:     values.mqttHost,
       mqttPort:     values.mqttPort,
+      mqttWsPort:   values.mqttWsPort,
       mqttUsername: values.mqttUsername || '',
       mqttPassword: values.mqttPassword || '',
       sources,
@@ -59,16 +86,37 @@ export default function Settings({ onSaved }) {
     }
   }
 
-  const labelStyle = { color: '#8c8c8c', fontSize: 12 };
+  const labelStyle = { color: c.textSecondary, fontSize: 12 };
+  const inputStyle = { background: c.inputBg, color: c.textBody, borderColor: c.border };
+  const inputAltStyle = { background: c.inputBgAlt, color: c.textBody, borderColor: c.border };
 
   const sectionHeader = (text) => (
-    <div style={{ fontSize: 10, color: '#595959', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+    <div style={{ fontSize: 10, color: c.textTertiary, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
       {text}
     </div>
   );
 
   return (
     <div style={{ padding: '16px 20px', overflowY: 'auto', height: '100%' }}>
+
+      {sectionHeader('Application')}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <span style={{ fontSize: 12, color: c.textBody }}>Theme</span>
+        <Segmented
+          size="small"
+          value={mode}
+          onChange={changeTheme}
+          options={[
+            { label: 'Dark',  value: 'dark',  icon: <MoonOutlined /> },
+            { label: 'Light', value: 'light', icon: <SunOutlined /> },
+          ]}
+        />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <span style={{ fontSize: 12, color: c.textBody }}>Start automatically when you log in</span>
+        <Switch checked={autostart} loading={autostartLoading} onChange={toggleAutostart} size="small" />
+      </div>
+      <Divider style={{ borderColor: c.borderSubtle, margin: '4px 0 16px' }} />
 
       <Form form={form} layout="vertical" onFinish={save} size="small">
 
@@ -84,7 +132,7 @@ export default function Settings({ onSaved }) {
           >
             <Input
               placeholder="192.168.1.100"
-              style={{ background: '#1a1a1a', color: '#d9d9d9', borderColor: '#3a3a3a' }}
+              style={inputStyle}
             />
           </Form.Item>
           <Form.Item
@@ -95,7 +143,18 @@ export default function Settings({ onSaved }) {
           >
             <InputNumber
               min={1} max={65535}
-              style={{ width: '100%', background: '#1a1a1a', borderColor: '#3a3a3a' }}
+              style={{ width: '100%', ...inputStyle }}
+            />
+          </Form.Item>
+          <Form.Item
+            label={<span style={labelStyle}>WS Port</span>}
+            name="mqttWsPort"
+            rules={[{ required: true }]}
+            style={{ width: 80 }}
+          >
+            <InputNumber
+              min={1} max={65535}
+              style={{ width: '100%', ...inputStyle }}
             />
           </Form.Item>
         </div>
@@ -108,7 +167,7 @@ export default function Settings({ onSaved }) {
           >
             <Input
               placeholder="(none)"
-              style={{ background: '#1a1a1a', color: '#d9d9d9', borderColor: '#3a3a3a' }}
+              style={inputStyle}
             />
           </Form.Item>
           <Form.Item
@@ -118,26 +177,38 @@ export default function Settings({ onSaved }) {
           >
             <Input.Password
               placeholder="(none)"
-              style={{ background: '#1a1a1a', color: '#d9d9d9', borderColor: '#3a3a3a' }}
+              style={inputStyle}
             />
           </Form.Item>
         </div>
 
-        <Divider style={{ borderColor: '#2a2a2a', margin: '4px 0 16px' }} />
+        <Divider style={{ borderColor: c.borderSubtle, margin: '4px 0 16px' }} />
 
         {/* Sources */}
         {sectionHeader('Sources')}
-        <div style={{ fontSize: 11, color: '#595959', marginBottom: 12 }}>
-          Each source key is <code style={{ background: '#1f1f1f', padding: '0 4px', borderRadius: 3, color: '#8c8c8c' }}>projectId/systemId</code>.
-          Subscribes to <code style={{ background: '#1f1f1f', padding: '0 4px', borderRadius: 3, color: '#8c8c8c' }}>.../status</code> and <code style={{ background: '#1f1f1f', padding: '0 4px', borderRadius: 3, color: '#8c8c8c' }}>.../checks/+</code>.
+        <div style={{ fontSize: 11, color: c.textTertiary, marginBottom: 12 }}>
+          Each source key is <code style={{ background: c.codeBg, padding: '0 4px', borderRadius: 3, color: c.textSecondary }}>projectId/systemId</code>.
+          Subscribes to <code style={{ background: c.codeBg, padding: '0 4px', borderRadius: 3, color: c.textSecondary }}>.../status</code> and <code style={{ background: c.codeBg, padding: '0 4px', borderRadius: 3, color: c.textSecondary }}>.../checks/+</code>.
         </div>
 
-        <Form.List name="sources">
-          {(fields, { add, remove }) => (
+        <Form.List
+          name="sources"
+          rules={[
+            {
+              validator: async (_, sources) => {
+                const hasSource = (sources || []).some((s) => s?.sourceKey?.trim());
+                if (!hasSource) {
+                  return Promise.reject(new Error('Add at least one Process Status or Connection Status source'));
+                }
+              },
+            },
+          ]}
+        >
+          {(fields, { add, remove }, { errors }) => (
             <>
               {fields.map(({ key, name }) => (
                 <div key={key} style={{
-                  background: '#1a1a1a', borderRadius: 6, border: '1px solid #2a2a2a',
+                  background: c.panelBg, borderRadius: 6, border: `1px solid ${c.borderSubtle}`,
                   padding: '10px 12px 4px', marginBottom: 8,
                 }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
@@ -148,7 +219,7 @@ export default function Settings({ onSaved }) {
                     >
                       <Input
                         placeholder="Server 1"
-                        style={{ background: '#141414', color: '#d9d9d9', borderColor: '#3a3a3a' }}
+                        style={inputAltStyle}
                       />
                     </Form.Item>
                     <Form.Item
@@ -162,7 +233,7 @@ export default function Settings({ onSaved }) {
                     >
                       <Input
                         placeholder="xxxxxxxx-xxxx/yyyyyyyy-yyyy"
-                        style={{ background: '#141414', color: '#d9d9d9', borderColor: '#3a3a3a', fontFamily: 'monospace', fontSize: 11 }}
+                        style={{ ...inputAltStyle, fontFamily: 'monospace', fontSize: 11 }}
                       />
                     </Form.Item>
                     <Form.Item
@@ -172,7 +243,7 @@ export default function Settings({ onSaved }) {
                       style={{ width: 140, marginBottom: 8 }}
                     >
                       <Select
-                        style={{ background: '#141414' }}
+                        style={{ background: c.inputBgAlt }}
                         options={[
                           { value: 'connection_status', label: 'Connection' },
                           { value: 'process_status',    label: 'Process' },
@@ -183,7 +254,7 @@ export default function Settings({ onSaved }) {
                       type="text"
                       icon={<DeleteOutlined />}
                       onClick={() => remove(name)}
-                      style={{ color: '#595959', marginTop: 20 }}
+                      style={{ color: c.textTertiary, marginTop: 20 }}
                       size="small"
                     />
                   </div>
@@ -195,15 +266,16 @@ export default function Settings({ onSaved }) {
                 onClick={() => add({ label: '', sourceKey: '' })}
                 icon={<PlusOutlined />}
                 block
-                style={{ borderColor: '#3a3a3a', color: '#8c8c8c', background: 'transparent', marginBottom: 16 }}
+                style={{ borderColor: c.border, color: c.textSecondary, background: 'transparent', marginBottom: 8 }}
               >
                 Add Source
               </Button>
+              <Form.ErrorList errors={errors} />
             </>
           )}
         </Form.List>
 
-        <Form.Item style={{ marginBottom: 0 }}>
+        <Form.Item style={{ marginBottom: 0, marginTop: 16 }}>
           <Button
             type="primary"
             htmlType="submit"

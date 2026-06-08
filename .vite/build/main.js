@@ -26984,10 +26984,18 @@ const icons = {
   black: makeCircleIcon(ICON_SIZE, "#404040")
 };
 if (squirrelStartup) require$$3$1.app.quit();
+process.on("uncaughtException", (err) => {
+  console.error("[FATAL] Uncaught exception:", err);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[FATAL] Unhandled promise rejection:", reason);
+});
 const SETTINGS_FILE = path.join(require$$3$1.app.getPath("userData"), "settings.json");
 const DEFAULT_SETTINGS = {
+  theme: "dark",
   mqttHost: "24.121.212.206",
   mqttPort: 1883,
+  mqttWsPort: 9001,
   mqttUsername: "",
   mqttPassword: "",
   sources: [
@@ -27018,6 +27026,23 @@ function saveSettings(settings2) {
   fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
   fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings2, null, 2));
 }
+function loginItemSettingsFor(openAtLogin) {
+  if (process.platform !== "win32") return { openAtLogin };
+  const appFolder = path.dirname(process.execPath);
+  const updateExe = path.resolve(appFolder, "..", "Update.exe");
+  const exeName = path.basename(process.execPath);
+  if (fs.existsSync(updateExe)) {
+    return { openAtLogin, path: updateExe, args: ["--processStart", `"${exeName}"`] };
+  }
+  return { openAtLogin };
+}
+function getAutostart() {
+  return require$$3$1.app.getLoginItemSettings(loginItemSettingsFor(false)).openAtLogin;
+}
+function setAutostart(enabled) {
+  require$$3$1.app.setLoginItemSettings(loginItemSettingsFor(enabled));
+  return getAutostart();
+}
 let tray = null;
 let mainWindow = null;
 let mqttClient = null;
@@ -27026,10 +27051,29 @@ let settings = loadSettings();
 let isQuitting = false;
 const items = /* @__PURE__ */ new Map();
 function computeConnectionItemStatus(payload, trackedLastReceived) {
+  const refreshMs = (payload.refreshMinutes || 5) * 6e4;
+  const type = payload.type;
+  if (type === "icmp" || type === "tcp" || type === "dated_file_exists" || type === "file_mtime" || type === "db_currency") {
+    if (payload.checkedAt) {
+      const staleness = Date.now() - new Date(payload.checkedAt).getTime();
+      if (staleness > 5 * refreshMs) return "red";
+      if (staleness > 3 * refreshMs) return "yellow";
+    }
+    if (type === "icmp" || type === "tcp") return payload.available ? "green" : "red";
+    if (type === "dated_file_exists") {
+      if (payload.error) return "red";
+      return payload.exists ? "green" : "red";
+    }
+    if (payload.error) return "red";
+    if (payload.ageSeconds == null) return "red";
+    const ageMs = payload.ageSeconds * 1e3;
+    if (ageMs < 3 * refreshMs) return "green";
+    if (ageMs < 5 * refreshMs) return "yellow";
+    return "red";
+  }
   const lr = trackedLastReceived || payload.lastReceived;
   if (!lr) return "red";
   const age = Date.now() - new Date(lr).getTime();
-  const refreshMs = (payload.refreshMinutes || 1) * 6e4;
   if (age < 3 * refreshMs) return "green";
   if (age < 5 * refreshMs) return "yellow";
   return "red";
@@ -27195,9 +27239,12 @@ function updateTray(status) {
   tray.setContextMenu(buildContextMenu(status));
 }
 function createWindow() {
+  const trayBounds = tray ? tray.getBounds() : null;
+  const display = trayBounds && trayBounds.width ? require$$3$1.screen.getDisplayNearestPoint({ x: trayBounds.x, y: trayBounds.y }) : require$$3$1.screen.getPrimaryDisplay();
+  const height = Math.round(display.workAreaSize.height * 0.9);
   mainWindow = new require$$3$1.BrowserWindow({
     width: 460,
-    height: 560,
+    height,
     resizable: false,
     skipTaskbar: true,
     show: false,
@@ -27297,3 +27344,11 @@ require$$3$1.ipcMain.handle("items:remove", (_e, topicKey) => {
   return { ok: true };
 });
 require$$3$1.ipcMain.handle("shell:openExternal", (_e, url) => require$$3$1.shell.openExternal(url));
+require$$3$1.ipcMain.handle("autostart:get", () => getAutostart());
+require$$3$1.ipcMain.handle("autostart:set", (_e, enabled) => ({ ok: true, enabled: setAutostart(!!enabled) }));
+require$$3$1.ipcMain.handle("theme:get", () => settings.theme || "dark");
+require$$3$1.ipcMain.handle("theme:set", (_e, mode) => {
+  settings = { ...settings, theme: mode === "light" ? "light" : "dark" };
+  saveSettings(settings);
+  return { ok: true, theme: settings.theme };
+});

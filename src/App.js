@@ -3,6 +3,7 @@ import { ConfigProvider, theme } from 'antd';
 import StatusPanel from './components/StatusPanel';
 import Settings from './components/Settings';
 import { useMonitorStore, useSettingsStore } from './store';
+import { getColors } from './theme';
 
 function aggregateFromItems(items) {
   const statuses = Object.values(items).map((i) => i.computedStatus).filter(Boolean);
@@ -17,9 +18,12 @@ export default function App() {
   const setItems = useMonitorStore((s) => s.setItems);
   const setConnectionState = useMonitorStore((s) => s.setConnectionState);
   const setSettings = useSettingsStore((s) => s.setSettings);
+  const setTheme = useSettingsStore((s) => s.setTheme);
+  const mode = useSettingsStore((s) => s.theme);
   const connectionState = useMonitorStore((s) => s.connectionState);
   const items = useMonitorStore((s) => s.items);
 
+  const c = getColors(mode);
   const aggregate = aggregateFromItems(items);
 
   const headerDotColor =
@@ -37,6 +41,7 @@ export default function App() {
     window.electron?.getSettings().then((s) => {
       if (s) setSettings(s);
     });
+    window.electron?.getTheme().then((t) => { if (t) setTheme(t); });
   }, []);
 
   useEffect(() => {
@@ -44,33 +49,37 @@ export default function App() {
     window.electron?.onConnection((state) => setConnectionState(state));
   }, []);
 
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', mode);
+  }, [mode]);
+
   return (
     <ConfigProvider
       theme={{
-        algorithm: theme.darkAlgorithm,
+        algorithm: mode === 'light' ? theme.defaultAlgorithm : theme.darkAlgorithm,
         token: {
           colorPrimary: '#52c41a',
           borderRadius: 6,
-          colorBgContainer: '#1f1f1f',
-          colorBgElevated: '#262626',
+          colorBgContainer: c.panelBg,
+          colorBgElevated: c.headerBg,
         },
       }}
     >
-      <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#141414' }}>
+      <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: c.pageBg }}>
         <header className="app-header">
           <div style={{
             width: 8, height: 8, borderRadius: '50%',
             background: headerDotColor, flexShrink: 0,
             transition: 'background 0.4s',
           }} />
-          <span style={{ fontSize: 14, fontWeight: 700, color: '#e0e0e0', flex: 1 }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: c.textPrimary, flex: 1 }}>
             Ping Monitor
           </span>
           <button
             onClick={() => setView(view === 'status' ? 'settings' : 'status')}
             style={{
               background: 'none', border: 'none', cursor: 'pointer',
-              color: '#8c8c8c', fontSize: 18, padding: '0 4px',
+              color: c.textSecondary, fontSize: 18, padding: '0 4px',
               WebkitAppRegion: 'no-drag',
             }}
             title={view === 'status' ? 'Settings' : 'Back'}
