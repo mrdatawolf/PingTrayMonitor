@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Divider, Tag, Tooltip } from 'antd';
+import { Tag } from 'antd';
 import {
   CheckCircleFilled, WarningFilled, CloseCircleFilled,
-  ClockCircleOutlined, WifiOutlined, DisconnectOutlined,
-  ApiOutlined,
+  ClockCircleOutlined,
 } from '@ant-design/icons';
 import { useMonitorStore } from '../store';
 
@@ -22,19 +21,42 @@ function formatRelative(isoString) {
   return 'Just now';
 }
 
-function formatDate(isoString) {
-  if (!isoString) return '—';
-  return new Date(isoString).toLocaleString(undefined, {
-    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-  });
+function formatAge(seconds) {
+  if (seconds < 60)    return `${Math.round(seconds)}s`;
+  if (seconds < 3600)  return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+  return `${Math.floor(seconds / 86400)}d`;
 }
 
-// Recompute connection item status based on current time (mirrors main.js logic)
+// Mirrors computeConnectionItemStatus in main.js — keep in sync
 function computeConnectionStatus(item, now) {
-  const lr = item.lastReceivedTracked || item.payload?.lastReceived;
+  const { payload } = item;
+  const refreshMs = (payload?.refreshMinutes || 5) * 60_000;
+  const type = payload?.type;
+
+  if (type === 'icmp' || type === 'tcp' || type === 'dated_file_exists' || type === 'file_mtime' || type === 'db_currency') {
+    if (payload.checkedAt) {
+      const staleness = now - new Date(payload.checkedAt).getTime();
+      if (staleness > 5 * refreshMs) return 'red';
+      if (staleness > 3 * refreshMs) return 'yellow';
+    }
+    if (type === 'icmp' || type === 'tcp') return payload.available ? 'green' : 'red';
+    if (type === 'dated_file_exists') {
+      if (payload.error) return 'red';
+      return payload.exists ? 'green' : 'red';
+    }
+    if (payload.error) return 'red';
+    if (payload.ageSeconds == null) return 'red';
+    const ageMs = payload.ageSeconds * 1000;
+    if (ageMs < 3 * refreshMs) return 'green';
+    if (ageMs < 5 * refreshMs) return 'yellow';
+    return 'red';
+  }
+
+  // Legacy lastReceived-based checks
+  const lr = item.lastReceivedTracked || payload?.lastReceived;
   if (!lr) return 'red';
   const age = now - new Date(lr).getTime();
-  const refreshMs = (item.payload?.refreshMinutes || 1) * 60_000;
   if (age < 3 * refreshMs) return 'green';
   if (age < 5 * refreshMs) return 'yellow';
   return 'red';
@@ -61,6 +83,14 @@ const STATUS_BORDER = {
   grey:   '#2a2a2a',
 };
 
+const TYPE_CHIP_LABELS = {
+  icmp:              'ICMP',
+  tcp:               'TCP',
+  file_mtime:        'FILE',
+  dated_file_exists: 'FILE',
+  db_currency:       'DB',
+};
+
 function StatusIcon({ status, size = 16 }) {
   if (status === 'green')  return <CheckCircleFilled style={{ color: '#52c41a', fontSize: size }} />;
   if (status === 'yellow') return <WarningFilled     style={{ color: '#faad14', fontSize: size }} />;
@@ -77,7 +107,7 @@ function SmallDot({ status }) {
   );
 }
 
-// ─── Grey state ───────────────────────────────────────────────────────────────
+// ─── Grey / Black states ───────────────────────────────────────────────────────
 
 function GreyPanel() {
   return (
@@ -90,8 +120,6 @@ function GreyPanel() {
     </div>
   );
 }
-
-// ─── Black state ──────────────────────────────────────────────────────────────
 
 function BlackPanel() {
   return (
@@ -142,11 +170,70 @@ function DeleteButton({ topicKey }) {
   );
 }
 
-// ─── Connection status item row ───────────────────────────────────────────────
+// ─── Connection item row ──────────────────────────────────────────────────────
 
 function ConnectionRow({ item, now }) {
   const status = computeConnectionStatus(item, now);
   const { payload } = item;
+  const type = payload.type;
+
+  let detail;
+  if (type === 'icmp' || type === 'tcp') {
+    detail = (
+      <>
+        {payload.latencyMs != null && <span>{Math.round(payload.latencyMs)}ms</span>}
+        {payload.packetLoss != null && payload.packetLoss > 0 && (
+          <span style={{ color: '#faad14' }}>{payload.packetLoss}% loss</span>
+        )}
+        <span>checked: {formatRelative(payload.checkedAt)}</span>
+      </>
+    );
+  } else if (type === 'dated_file_exists') {
+    detail = (
+      <>
+        {payload.error
+          ? <span style={{ color: '#ff4d4f', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>{payload.error}</span>
+          : payload.exists
+            ? <span>{payload.sizeBytes != null ? `${(payload.sizeBytes / 1024).toFixed(1)} KB` : 'exists'}</span>
+            : <span style={{ color: '#ff4d4f' }}>file missing</span>
+        }
+        <span style={{ flexShrink: 0 }}>checked: {formatRelative(payload.checkedAt)}</span>
+      </>
+    );
+  } else if (type === 'file_mtime') {
+    detail = (
+      <>
+        {payload.fileCount != null && <span>{payload.fileCount} file{payload.fileCount !== 1 ? 's' : ''}</span>}
+        {payload.ageSeconds != null
+          ? <span>age: {formatAge(payload.ageSeconds)}</span>
+          : <span style={{ color: '#ff4d4f' }}>no file</span>
+        }
+        <span style={{ flexShrink: 0 }}>checked: {formatRelative(payload.checkedAt)}</span>
+      </>
+    );
+  } else if (type === 'db_currency') {
+    detail = (
+      <>
+        {payload.error
+          ? <span style={{ color: '#ff4d4f', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>{payload.error}</span>
+          : payload.ageSeconds != null
+            ? <span>record age: {formatAge(payload.ageSeconds)}</span>
+            : <span style={{ color: '#ff4d4f' }}>no records</span>
+        }
+        <span style={{ flexShrink: 0 }}>checked: {formatRelative(payload.checkedAt)}</span>
+      </>
+    );
+  } else {
+    detail = (
+      <>
+        {payload.latencyMs != null && <span>{Math.round(payload.latencyMs)}ms</span>}
+        {payload.packetLoss != null && payload.packetLoss > 0 && (
+          <span style={{ color: '#faad14' }}>{payload.packetLoss}% loss</span>
+        )}
+        <span>last: {formatRelative(item.lastReceivedTracked || payload.lastReceived)}</span>
+      </>
+    );
+  }
 
   return (
     <div style={{
@@ -165,17 +252,12 @@ function ConnectionRow({ item, now }) {
               style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', flexShrink: 0 }}
             >
               {payload.available ? 'UP' : 'DOWN'}
+
             </Tag>
           )}
         </div>
         <div style={{ fontSize: 10, color: '#595959', marginTop: 2, display: 'flex', gap: 10 }}>
-          {payload.latencyMs != null && (
-            <span>{Math.round(payload.latencyMs)}ms</span>
-          )}
-          {payload.packetLoss != null && payload.packetLoss > 0 && (
-            <span style={{ color: '#faad14' }}>{payload.packetLoss}% loss</span>
-          )}
-          <span>last: {formatRelative(item.lastReceivedTracked || payload.lastReceived)}</span>
+          {detail}
         </div>
       </div>
       <DeleteButton topicKey={item.topicKey} />
@@ -183,17 +265,17 @@ function ConnectionRow({ item, now }) {
   );
 }
 
-// ─── Process status item row ──────────────────────────────────────────────────
+// ─── Process item row ─────────────────────────────────────────────────────────
 
 const PROCESS_STATUS_CONFIG = {
-  green:  { color: '#52c41a', label: 'OK' },
-  yellow: { color: '#faad14', label: 'Warning' },
-  red:    { color: '#ff4d4f', label: 'Error' },
+  green:  { label: 'OK' },
+  yellow: { label: 'Warning' },
+  red:    { label: 'Error' },
 };
 
 function ProcessRow({ item }) {
   const { payload, sourceLabel } = item;
-  const cfg = PROCESS_STATUS_CONFIG[payload.status] || { color: '#595959', label: 'Unknown' };
+  const cfg = PROCESS_STATUS_CONFIG[payload.status] || { label: 'Unknown' };
 
   return (
     <div style={{
@@ -228,20 +310,49 @@ function ProcessRow({ item }) {
   );
 }
 
-// ─── Section header ───────────────────────────────────────────────────────────
+// ─── Source section ───────────────────────────────────────────────────────────
 
-function SectionHeader({ icon, title, count, statusSummary }) {
+function SourceSection({ label, sourceItems, now, isLast }) {
+  const statuses = sourceItems.map(item =>
+    item.messageType === 'connection_status'
+      ? computeConnectionStatus(item, now)
+      : (item.computedStatus || 'grey')
+  );
+  const agg =
+    statuses.includes('red')    ? 'red' :
+    statuses.includes('yellow') ? 'yellow' :
+    statuses.length             ? 'green' : 'grey';
+
+  const sorted = [...sourceItems].sort((a, b) => {
+    const aLabel = a.messageType === 'connection_status'
+      ? (a.payload?.label || a.payload?.id || '')
+      : a.sourceLabel;
+    const bLabel = b.messageType === 'connection_status'
+      ? (b.payload?.label || b.payload?.id || '')
+      : b.sourceLabel;
+    return aLabel.localeCompare(bLabel);
+  });
+
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 6,
-      padding: '8px 0 4px',
-      fontSize: 10, color: '#595959',
-      textTransform: 'uppercase', letterSpacing: 1,
-    }}>
-      <span style={{ fontSize: 12 }}>{icon}</span>
-      <span style={{ flex: 1 }}>{title}</span>
-      <span style={{ fontSize: 10, color: '#434343' }}>{count} checks</span>
-      {statusSummary}
+    <div style={{ marginBottom: isLast ? 0 : 16 }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        padding: '8px 0 4px',
+        borderBottom: '1px solid #252525',
+      }}>
+        <SmallDot status={agg} />
+        <span style={{ flex: 1, fontSize: 10, color: '#8c8c8c', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>
+          {label}
+        </span>
+        <span style={{ fontSize: 10, color: '#434343' }}>
+          {sourceItems.length} check{sourceItems.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+      {sorted.map(item =>
+        item.messageType === 'connection_status'
+          ? <ConnectionRow key={item.topicKey} item={item} now={now} />
+          : <ProcessRow key={item.topicKey} item={item} />
+      )}
     </div>
   );
 }
@@ -251,7 +362,6 @@ function SectionHeader({ icon, title, count, statusSummary }) {
 export default function StatusPanel() {
   const { items, connectionState } = useMonitorStore();
 
-  // Tick every 30s so connection status ages display correctly
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 30_000);
@@ -263,18 +373,22 @@ export default function StatusPanel() {
   const allItems = Object.values(items);
   if (!allItems.length) return <GreyPanel />;
 
-  const connectionItems = allItems
-    .filter((i) => i.messageType === 'connection_status')
-    .sort((a, b) => (a.payload?.label || a.payload?.id || '').localeCompare(b.payload?.label || b.payload?.id || ''));
+  // Group by source label, sorted alphabetically
+  const sourceMap = new Map();
+  for (const item of allItems) {
+    const key = item.sourceLabel;
+    if (!sourceMap.has(key)) sourceMap.set(key, []);
+    sourceMap.get(key).push(item);
+  }
+  const sources = [...sourceMap.entries()].sort(([a], [b]) => a.localeCompare(b));
 
-  const processItems = allItems
-    .filter((i) => i.messageType === 'process_status')
-    .sort((a, b) => a.sourceLabel.localeCompare(b.sourceLabel));
+  // Overall aggregate across everything
+  const allStatuses = allItems.map(item =>
+    item.messageType === 'connection_status'
+      ? computeConnectionStatus(item, now)
+      : (item.computedStatus || 'grey')
+  ).filter(Boolean);
 
-  // Aggregate across all items (recomputing connection items with current time)
-  const connectionStatuses = connectionItems.map((i) => computeConnectionStatus(i, now));
-  const processStatuses = processItems.map((i) => i.computedStatus);
-  const allStatuses = [...connectionStatuses, ...processStatuses].filter(Boolean);
   const aggregate =
     allStatuses.includes('red')    ? 'red' :
     allStatuses.includes('yellow') ? 'yellow' :
@@ -284,16 +398,11 @@ export default function StatusPanel() {
   const heroBg     = STATUS_BG[aggregate]     || '#1a1a1a';
   const heroBorder = STATUS_BORDER[aggregate] || '#2a2a2a';
 
-  const heroLabels = {
-    green:  'All Systems OK',
-    yellow: 'Degraded',
-    red:    'Issues Detected',
-    grey:   'No Data',
-  };
+  const heroLabels = { green: 'All Systems OK', yellow: 'Degraded', red: 'Issues Detected', grey: 'No Data' };
 
-  const redCount    = allStatuses.filter((s) => s === 'red').length;
-  const yellowCount = allStatuses.filter((s) => s === 'yellow').length;
-  const greenCount  = allStatuses.filter((s) => s === 'green').length;
+  const redCount    = allStatuses.filter(s => s === 'red').length;
+  const yellowCount = allStatuses.filter(s => s === 'yellow').length;
+  const greenCount  = allStatuses.filter(s => s === 'green').length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -319,39 +428,19 @@ export default function StatusPanel() {
         <StatusIcon status={aggregate} size={22} />
       </div>
 
-      {/* Scrollable content */}
+      {/* Scrollable content — one section per source */}
       <div style={{ flex: 1, overflow: 'auto', padding: '0 20px 16px' }}>
-
-        {/* Connection checks section */}
-        {connectionItems.length > 0 && (
-          <>
-            <SectionHeader
-              icon={<WifiOutlined />}
-              title="Connection Checks"
-              count={connectionItems.length}
-            />
-            {connectionItems.map((item) => (
-              <ConnectionRow key={item.topicKey} item={item} now={now} />
-            ))}
-          </>
-        )}
-
-        {/* Process status section */}
-        {processItems.length > 0 && (
-          <>
-            <div style={{ height: connectionItems.length > 0 ? 12 : 0 }} />
-            <SectionHeader
-              icon={<ApiOutlined />}
-              title="Process Status"
-              count={processItems.length}
-            />
-            {processItems.map((item) => (
-              <ProcessRow key={item.topicKey} item={item} />
-            ))}
-          </>
-        )}
-
+        {sources.map(([label, sourceItems], i) => (
+          <SourceSection
+            key={label}
+            label={label}
+            sourceItems={sourceItems}
+            now={now}
+            isLast={i === sources.length - 1}
+          />
+        ))}
       </div>
+
     </div>
   );
 }

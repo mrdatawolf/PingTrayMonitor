@@ -70,10 +70,33 @@ const items = new Map();
 // ─── Status computation ───────────────────────────────────────────────────────
 
 function computeConnectionItemStatus(payload, trackedLastReceived) {
+  const refreshMs = (payload.refreshMinutes || 5) * 60_000;
+  const type = payload.type;
+
+  if (type === 'icmp' || type === 'tcp' || type === 'dated_file_exists' || type === 'file_mtime' || type === 'db_currency') {
+    if (payload.checkedAt) {
+      const staleness = Date.now() - new Date(payload.checkedAt).getTime();
+      if (staleness > 5 * refreshMs) return 'red';
+      if (staleness > 3 * refreshMs) return 'yellow';
+    }
+    if (type === 'icmp' || type === 'tcp') return payload.available ? 'green' : 'red';
+    if (type === 'dated_file_exists') {
+      if (payload.error) return 'red';
+      return payload.exists ? 'green' : 'red';
+    }
+    // file_mtime, db_currency: age of the data itself
+    if (payload.error) return 'red';
+    if (payload.ageSeconds == null) return 'red';
+    const ageMs = payload.ageSeconds * 1000;
+    if (ageMs < 3 * refreshMs) return 'green';
+    if (ageMs < 5 * refreshMs) return 'yellow';
+    return 'red';
+  }
+
+  // Legacy lastReceived-based checks
   const lr = trackedLastReceived || payload.lastReceived;
   if (!lr) return 'red';
   const age = Date.now() - new Date(lr).getTime();
-  const refreshMs = (payload.refreshMinutes || 1) * 60_000;
   if (age < 3 * refreshMs) return 'green';
   if (age < 5 * refreshMs) return 'yellow';
   return 'red';
