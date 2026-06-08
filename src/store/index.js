@@ -4,9 +4,11 @@ import { getColors } from '../theme';
 export const useMonitorStore = create((set) => ({
   items: {},              // topicKey → item data from main process
   connectionState: 'grey', // 'grey' | 'live' | 'black'
+  removedTopics: [],      // [{ topicKey, sourceLabel, label }]
 
   setItems: (items) => set({ items }),
   setConnectionState: (connectionState) => set({ connectionState }),
+  setRemovedTopics: (removedTopics) => set({ removedTopics }),
 }));
 
 export const useSettingsStore = create((set) => ({

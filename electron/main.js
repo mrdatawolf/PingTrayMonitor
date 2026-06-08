@@ -21,6 +21,7 @@ const SETTINGS_FILE = path.join(app.getPath('userData'), 'settings.json');
 
 const DEFAULT_SETTINGS = {
   theme: 'dark',
+  removedTopics: [],
   mqttHost: '24.121.212.206',
   mqttPort: 1883,
   mqttWsPort: 9001,
@@ -95,6 +96,18 @@ let isQuitting = false;
 
 // items: topicKey → { topicKey, messageType, sourceLabel, payload, computedStatus, lastReceivedTracked, lastUpdated }
 const items = new Map();
+
+// Topics the user explicitly removed (two-click confirmed intent).
+// Persisted in settings.json so removals survive restarts.
+// topicKey → { topicKey, sourceLabel, label }
+const removedTopics = new Map(
+  (settings.removedTopics || []).map((r) => [r.topicKey, r])
+);
+
+function saveRemovedTopics() {
+  settings = { ...settings, removedTopics: [...removedTopics.values()] };
+  saveSettings(settings);
+}
 
 // ─── Status computation ───────────────────────────────────────────────────────
 
@@ -215,6 +228,8 @@ function connectMqtt() {
   });
 
   mqttClient.on('message', (topic, message) => {
+    if (removedTopics.has(topic)) return;
+
     let payload;
     try { payload = JSON.parse(message.toString()); } catch { return; }
 
@@ -389,6 +404,12 @@ function broadcastItems() {
   }
 }
 
+function broadcastRemovedTopics() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('mqtt:removedTopics', [...removedTopics.values()]);
+  }
+}
+
 function broadcastConnectionState(state) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('mqtt:connection', state);
@@ -436,6 +457,7 @@ app.on('will-quit', () => { if (mqttClient) mqttClient.end(true); });
 ipcMain.handle('items:get', () => ({
   items: Object.fromEntries(items),
   connectionState: currentConnectionState,
+  removedTopics: [...removedTopics.values()],
 }));
 
 ipcMain.handle('settings:get', () => settings);
@@ -448,7 +470,14 @@ ipcMain.handle('settings:save', (_e, newSettings) => {
 });
 
 ipcMain.handle('items:remove', (_e, topicKey) => {
+  const item = items.get(topicKey);
   items.delete(topicKey);
+  removedTopics.set(topicKey, {
+    topicKey,
+    sourceLabel: item?.sourceLabel || '',
+    label: item?.payload?.label || item?.payload?.id || topicKey,
+  });
+  saveRemovedTopics();
 
   // Publish an empty retained payload — this tells the broker to delete the
   // retained message so the ghost doesn't come back on reconnect.
@@ -463,6 +492,23 @@ ipcMain.handle('items:remove', (_e, topicKey) => {
 
   updateTray(currentTrayStatus());
   broadcastItems();
+  broadcastRemovedTopics();
+  return { ok: true };
+});
+
+ipcMain.handle('items:getRemovedTopics', () => [...removedTopics.values()]);
+
+ipcMain.handle('items:restore', (_e, topicKey) => {
+  removedTopics.delete(topicKey);
+  saveRemovedTopics();
+  // Re-subscribe to the specific topic to trigger retained message re-delivery
+  if (mqttClient?.connected) {
+    mqttClient.subscribe(topicKey, { qos: 1 }, (err) => {
+      if (err) console.error(`[MQTT] Failed to re-subscribe: ${topicKey}`, err.message);
+      else     console.log(`[MQTT] Re-subscribed (restored): ${topicKey}`);
+    });
+  }
+  broadcastRemovedTopics();
   return { ok: true };
 });
 

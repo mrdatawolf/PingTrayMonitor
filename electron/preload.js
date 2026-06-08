@@ -13,7 +13,10 @@ contextBridge.exposeInMainWorld('electron', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
 
-  removeItem: (topicKey) => ipcRenderer.invoke('items:remove', topicKey),
+  removeItem:        (topicKey) => ipcRenderer.invoke('items:remove', topicKey),
+  getRemovedTopics:  ()         => ipcRenderer.invoke('items:getRemovedTopics'),
+  restoreItem:       (topicKey) => ipcRenderer.invoke('items:restore', topicKey),
+  onRemovedTopics:   (cb)       => ipcRenderer.on('mqtt:removedTopics', (_e, topics) => cb(topics)),
 
   // Launch at login
   getAutostart: () => ipcRenderer.invoke('autostart:get'),
