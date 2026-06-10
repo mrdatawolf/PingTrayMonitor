@@ -144,9 +144,39 @@ function computeConnectionItemStatus(payload, trackedLastReceived) {
   return 'red';
 }
 
+// Aggregate status for a "connections" subject (a circuit/host checked from
+// multiple locations). Majority of locations reporting it down means the
+// subject itself is likely down (red); a minority means the issue is more
+// likely localized to those reporting locations' paths (orange).
+function subjectAggregateStatus(downCount, total) {
+  if (downCount === 0) return 'green';
+  return downCount / total > 0.5 ? 'red' : 'orange';
+}
+
 function aggregateItemsStatus() {
   if (!items.size) return 'grey';
-  const statuses = [...items.values()].map((i) => i.computedStatus).filter(Boolean);
+
+  const statuses = [];
+  const subjectGroups = new Map();
+
+  for (const item of items.values()) {
+    if (item.messageType === 'connections_status') {
+      const sid = item.payload.subjectId;
+      if (!subjectGroups.has(sid)) subjectGroups.set(sid, []);
+      subjectGroups.get(sid).push(item);
+    } else if (item.computedStatus) {
+      statuses.push(item.computedStatus);
+    }
+  }
+
+  for (const groupItems of subjectGroups.values()) {
+    const downCount = groupItems.filter((i) => i.computedStatus === 'red').length;
+    const subjStatus = subjectAggregateStatus(downCount, groupItems.length);
+    // 'orange' (localized path issue) degrades the overall tray status to
+    // 'yellow' rather than 'red' — only a majority-down subject is 'red'.
+    statuses.push(subjStatus === 'orange' ? 'yellow' : subjStatus);
+  }
+
   if (!statuses.length) return 'grey';
   if (statuses.includes('red'))    return 'red';
   if (statuses.includes('yellow')) return 'yellow';
@@ -186,6 +216,12 @@ function findSourceForTopic(topic) {
   return null;
 }
 
+// "connections" is a broker-wide aggregation topic, independent of any
+// configured source: connections/<subjectId>/<projectId>/<systemId>/<id>.
+// Multiple locations (mqtt servers) publish their own view of the same
+// subject here, so we can tell a real outage apart from a local path issue.
+const CONNECTIONS_WILDCARD = 'connections/#';
+
 // ─── MQTT ─────────────────────────────────────────────────────────────────────
 
 function setConnectionState(state) {
@@ -205,7 +241,6 @@ function connectMqtt() {
   setConnectionState('grey');
 
   const sources = settings.sources || [];
-  if (!sources.length) return;
 
   const url = `mqtt://${settings.mqttHost}:${settings.mqttPort}`;
   const opts = { clean: true, reconnectPeriod: 15_000 };
@@ -225,6 +260,8 @@ function connectMqtt() {
         console.log(`[MQTT] Subscribed: ${topic}`);
       }
     }
+    mqttClient.subscribe(CONNECTIONS_WILDCARD, { qos: 1 });
+    console.log(`[MQTT] Subscribed: ${CONNECTIONS_WILDCARD}`);
   });
 
   mqttClient.on('message', (topic, message) => {
@@ -233,16 +270,24 @@ function connectMqtt() {
     let payload;
     try { payload = JSON.parse(message.toString()); } catch { return; }
 
-    const match = findSourceForTopic(topic);
-    if (!match) return;
+    let type, sourceLabel;
+    if (topic.startsWith('connections/')) {
+      if (!payload.subjectId) return;
+      type = 'connections_status';
+      sourceLabel = payload.subjectLabel || payload.subjectId;
+    } else {
+      const match = findSourceForTopic(topic);
+      if (!match) return;
+      type = match.type;
+      sourceLabel = match.source.label || match.source.id;
+    }
 
-    const { source, type } = match;
     const existing = items.get(topic);
 
     let computedStatus;
     let lastReceivedTracked = existing?.lastReceivedTracked ?? null;
 
-    if (type === 'connection_status') {
+    if (type === 'connection_status' || type === 'connections_status') {
       if (payload.lastReceived) lastReceivedTracked = payload.lastReceived;
       computedStatus = computeConnectionItemStatus(payload, lastReceivedTracked);
     } else {
@@ -253,7 +298,7 @@ function connectMqtt() {
     items.set(topic, {
       topicKey: topic,
       messageType: type,
-      sourceLabel: source.label || source.id,
+      sourceLabel,
       payload,
       computedStatus,
       lastReceivedTracked,
@@ -267,7 +312,7 @@ function connectMqtt() {
     if (type === 'process_status') {
       const prev = existing;
       if (prev && prev.computedStatus !== computedStatus && currentConnectionState === 'live') {
-        sendProcessNotification(source.label, computedStatus, payload);
+        sendProcessNotification(sourceLabel, computedStatus, payload);
       }
     }
   });
@@ -288,14 +333,14 @@ function connectMqtt() {
 
 // ─── Staleness check ──────────────────────────────────────────────────────────
 
-// Runs every 60s to recompute connection_status items that may have aged
-// into yellow/red without new MQTT messages arriving.
+// Runs every 60s to recompute connection_status / connections_status items
+// that may have aged into yellow/red without new MQTT messages arriving.
 function startStalenessCheck() {
   setInterval(() => {
     if (currentConnectionState !== 'live') return;
     let changed = false;
     for (const [key, item] of items) {
-      if (item.messageType !== 'connection_status') continue;
+      if (item.messageType !== 'connection_status' && item.messageType !== 'connections_status') continue;
       const newStatus = computeConnectionItemStatus(item.payload, item.lastReceivedTracked);
       if (newStatus !== item.computedStatus) {
         items.set(key, { ...item, computedStatus: newStatus });

@@ -1,6 +1,6 @@
 {
   "name": "ping-tray-monitor",
-  "version": "1.0.2",
+  "version": "1.0.0",
   "description": "Unified system-tray monitor for connection and process status",
   "main": ".vite/build/main.js",
   "private": true,

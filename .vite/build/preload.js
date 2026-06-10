@@ -1,1 +1,23 @@
-"use strict";const{contextBridge:s,ipcRenderer:t}=require("electron");s.exposeInMainWorld("electron",{onItems:e=>t.on("mqtt:items",(o,n)=>e(n)),onConnection:e=>t.on("mqtt:connection",(o,n)=>e(n)),getItems:()=>t.invoke("items:get"),getSettings:()=>t.invoke("settings:get"),saveSettings:e=>t.invoke("settings:save",e),removeItem:e=>t.invoke("items:remove",e),getAutostart:()=>t.invoke("autostart:get"),setAutostart:e=>t.invoke("autostart:set",e),getTheme:()=>t.invoke("theme:get"),setTheme:e=>t.invoke("theme:set",e),openExternal:e=>t.invoke("shell:openExternal",e)});
+"use strict";
+const { contextBridge, ipcRenderer } = require("electron");
+contextBridge.exposeInMainWorld("electron", {
+  // Live pushes from main process
+  onItems: (cb) => ipcRenderer.on("mqtt:items", (_e, items) => cb(items)),
+  onConnection: (cb) => ipcRenderer.on("mqtt:connection", (_e, state) => cb(state)),
+  // One-time fetch for initial render
+  getItems: () => ipcRenderer.invoke("items:get"),
+  // Settings
+  getSettings: () => ipcRenderer.invoke("settings:get"),
+  saveSettings: (settings) => ipcRenderer.invoke("settings:save", settings),
+  removeItem: (topicKey) => ipcRenderer.invoke("items:remove", topicKey),
+  getRemovedTopics: () => ipcRenderer.invoke("items:getRemovedTopics"),
+  restoreItem: (topicKey) => ipcRenderer.invoke("items:restore", topicKey),
+  onRemovedTopics: (cb) => ipcRenderer.on("mqtt:removedTopics", (_e, topics) => cb(topics)),
+  // Launch at login
+  getAutostart: () => ipcRenderer.invoke("autostart:get"),
+  setAutostart: (enabled) => ipcRenderer.invoke("autostart:set", enabled),
+  // Light / dark mode
+  getTheme: () => ipcRenderer.invoke("theme:get"),
+  setTheme: (mode) => ipcRenderer.invoke("theme:set", mode),
+  openExternal: (url) => ipcRenderer.invoke("shell:openExternal", url)
+});

@@ -24,8 +24,8 @@ const dark = {
   blackDot:      '#2a2a2a',
   scrollTrack:   '#1a1a1a',
   scrollThumb:   '#3a3a3a',
-  statusBg:      { green: '#162312', yellow: '#2b2111', red: '#2a1215', grey: '#1a1a1a' },
-  statusBorder:  { green: '#274916', yellow: '#443111', red: '#431418', grey: '#2a2a2a' },
+  statusBg:      { green: '#162312', yellow: '#2b2111', orange: '#2b1d11', red: '#2a1215', grey: '#1a1a1a' },
+  statusBorder:  { green: '#274916', yellow: '#443111', orange: '#593815', red: '#431418', grey: '#2a2a2a' },
 };
 
 const light = {
@@ -50,8 +50,8 @@ const light = {
   blackDot:      '#8c8c8c',
   scrollTrack:   '#f0f0f0',
   scrollThumb:   '#d9d9d9',
-  statusBg:      { green: '#f6ffed', yellow: '#fffbe6', red: '#fff1f0', grey: '#fafafa' },
-  statusBorder:  { green: '#b7eb8f', yellow: '#ffe58f', red: '#ffccc7', grey: '#e8e8e8' },
+  statusBg:      { green: '#f6ffed', yellow: '#fffbe6', orange: '#fff7e6', red: '#fff1f0', grey: '#fafafa' },
+  statusBorder:  { green: '#b7eb8f', yellow: '#ffe58f', orange: '#ffd591', red: '#ffccc7', grey: '#e8e8e8' },
 };
 
 export function getColors(mode) {

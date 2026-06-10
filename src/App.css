@@ -41,6 +41,7 @@ button, input, a, .ant-btn, .ant-tabs-tab, .ant-switch {
 
 @keyframes pulse-green  { 0%, 100% { box-shadow: 0 0 0 0 rgba(82, 196, 26, 0.5);  } 50% { box-shadow: 0 0 0 8px rgba(82, 196, 26, 0);  } }
 @keyframes pulse-yellow { 0%, 100% { box-shadow: 0 0 0 0 rgba(250, 173, 20, 0.5); } 50% { box-shadow: 0 0 0 8px rgba(250, 173, 20, 0); } }
+@keyframes pulse-orange { 0%, 100% { box-shadow: 0 0 0 0 rgba(250, 140, 22, 0.5); } 50% { box-shadow: 0 0 0 8px rgba(250, 140, 22, 0); } }
 @keyframes pulse-red    { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 77, 79, 0.5);  } 50% { box-shadow: 0 0 0 8px rgba(255, 77, 79, 0);  } }
 
 .status-dot {
@@ -51,6 +52,7 @@ button, input, a, .ant-btn, .ant-tabs-tab, .ant-switch {
 
 .status-dot.green  { background: #52c41a; animation: pulse-green  2.5s infinite; }
 .status-dot.yellow { background: #faad14; animation: pulse-yellow 2.0s infinite; }
+.status-dot.orange { background: #fa8c16; animation: pulse-orange 2.0s infinite; }
 .status-dot.red    { background: #ff4d4f; animation: pulse-red    1.5s infinite; }
 .status-dot.grey   { background: var(--color-grey-dot); }
 .status-dot.black  { background: var(--color-black-dot); }

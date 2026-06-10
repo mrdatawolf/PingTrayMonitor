@@ -2,9 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Tag } from 'antd';
 import {
   CheckCircleFilled, WarningFilled, CloseCircleFilled,
-  ClockCircleOutlined,
+  ClockCircleOutlined, ThunderboltFilled,
 } from '@ant-design/icons';
 import { useMonitorStore, useThemeColors } from '../store';
+import {
+  computeConnectionStatus, hasRecentInstability, groupConnectionsBySubject,
+} from '../lib/connectionStatus';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -28,46 +31,13 @@ function formatAge(seconds) {
   return `${Math.floor(seconds / 86400)}d`;
 }
 
-// Mirrors computeConnectionItemStatus in main.js — keep in sync
-function computeConnectionStatus(item, now) {
-  const { payload } = item;
-  const refreshMs = (payload?.refreshMinutes || 5) * 60_000;
-  const type = payload?.type;
-
-  if (type === 'icmp' || type === 'tcp' || type === 'dated_file_exists' || type === 'file_mtime' || type === 'db_currency') {
-    if (payload.checkedAt) {
-      const staleness = now - new Date(payload.checkedAt).getTime();
-      if (staleness > 5 * refreshMs) return 'red';
-      if (staleness > 3 * refreshMs) return 'yellow';
-    }
-    if (type === 'icmp' || type === 'tcp') return payload.available ? 'green' : 'red';
-    if (type === 'dated_file_exists') {
-      if (payload.error) return 'red';
-      return payload.exists ? 'green' : 'red';
-    }
-    if (payload.error) return 'red';
-    if (payload.ageSeconds == null) return 'red';
-    const ageMs = payload.ageSeconds * 1000;
-    if (ageMs < 3 * refreshMs) return 'green';
-    if (ageMs < 5 * refreshMs) return 'yellow';
-    return 'red';
-  }
-
-  // Legacy lastReceived-based checks
-  const lr = item.lastReceivedTracked || payload?.lastReceived;
-  if (!lr) return 'red';
-  const age = now - new Date(lr).getTime();
-  if (age < 3 * refreshMs) return 'green';
-  if (age < 5 * refreshMs) return 'yellow';
-  return 'red';
-}
-
 // Saturated status colors stay constant across themes — only the chrome
 // (panels, borders, text) needs to adapt; see STATUS_BG/STATUS_BORDER below
 // which are theme-dependent and computed from the palette at render time.
 const STATUS_COLORS = {
   green:  '#52c41a',
   yellow: '#faad14',
+  orange: '#fa8c16',
   red:    '#ff4d4f',
   grey:   '#595959',
 };
@@ -93,6 +63,26 @@ function SmallDot({ status }) {
       className={`status-dot ${status || 'grey'}`}
       style={{ width: 10, height: 10, marginTop: 2, flexShrink: 0 }}
     />
+  );
+}
+
+// Small "this was unstable recently" indicator — shown regardless of the
+// current up/down status, so a check that's green right now but flapped
+// in the last hour (or is showing recent packet loss) doesn't look silently
+// fine.
+function InstabilityBadge({ payload }) {
+  if (!hasRecentInstability(payload)) return null;
+  const parts = [];
+  if (payload.transitions1h > 0) {
+    parts.push(`flapped ${payload.transitions1h}x in the last hour`);
+  }
+  if (payload.rollingPacketLoss10 > 0) {
+    parts.push(`${payload.rollingPacketLoss10}% loss (last 10 checks)`);
+  }
+  return (
+    <span title={parts.join(' · ')} style={{ color: '#fa8c16', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+      <ThunderboltFilled style={{ fontSize: 10 }} />
+    </span>
   );
 }
 
@@ -249,8 +239,9 @@ function ConnectionRow({ item, now }) {
             </Tag>
           )}
         </div>
-        <div style={{ fontSize: 10, color: c.textTertiary, marginTop: 2, display: 'flex', gap: 10 }}>
+        <div style={{ fontSize: 10, color: c.textTertiary, marginTop: 2, display: 'flex', alignItems: 'center', gap: 10 }}>
           {detail}
+          <InstabilityBadge payload={payload} />
         </div>
       </div>
       <DeleteButton topicKey={item.topicKey} />
@@ -352,6 +343,57 @@ function SourceSection({ label, sourceItems, now, isLast }) {
   );
 }
 
+// ─── Connections (multi-location) subject group ───────────────────────────────
+
+// One "subject" (e.g. a WAN circuit) checked from one or more locations.
+// The subject-level dot/summary applies the down-from-N-locations rule;
+// each location's own check is shown as a normal connection row below.
+function ConnectionsSubjectGroup({ subjectLabel, items, total, downCount, instableCount, status, now, isLast }) {
+  const c = useThemeColors();
+
+  let summary = null;
+  if (downCount > 0 && total > 1) {
+    summary = status === 'red'
+      ? `Down from ${downCount} of ${total} locations — likely the connection itself`
+      : `Down from ${downCount} of ${total} location${downCount !== 1 ? 's' : ''} — likely a path issue from ${downCount === 1 ? 'that location' : 'those locations'}, not the connection`;
+  } else if (downCount === 0 && instableCount > 0) {
+    summary = `Up now, but ${instableCount} of ${total} location${instableCount !== 1 ? 's' : ''} flapped recently`;
+  }
+
+  const summaryColor =
+    status === 'red'    ? '#ff4d4f' :
+    status === 'orange' ? '#fa8c16' :
+    instableCount > 0   ? '#fa8c16' : c.textTertiary;
+
+  const sorted = [...items].sort((a, b) =>
+    (a.payload?.label || '').localeCompare(b.payload?.label || '')
+  );
+
+  return (
+    <div style={{ marginBottom: isLast ? 0 : 16 }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        padding: '8px 0 4px',
+        borderBottom: `1px solid ${c.borderFaint}`,
+      }}>
+        <SmallDot status={status} />
+        <span style={{ flex: 1, fontSize: 10, color: c.textSecondary, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>
+          {subjectLabel}
+        </span>
+        <span style={{ fontSize: 10, color: c.textFaint }}>
+          {total} location{total !== 1 ? 's' : ''}
+        </span>
+      </div>
+      {summary && (
+        <div style={{ fontSize: 10, color: summaryColor, padding: '4px 0' }}>
+          {summary}
+        </div>
+      )}
+      {sorted.map(item => <ConnectionRow key={item.topicKey} item={item} now={now} />)}
+    </div>
+  );
+}
+
 // ─── Main panel ───────────────────────────────────────────────────────────────
 
 export default function StatusPanel() {
@@ -369,21 +411,35 @@ export default function StatusPanel() {
   const allItems = Object.values(items);
   if (!allItems.length) return <GreyPanel />;
 
-  // Group by source label, sorted alphabetically
+  // "connections" items are a multi-location view of a shared subject (e.g.
+  // a WAN circuit checked from several sites) — group those by subject
+  // rather than by reporting source.
+  const connectionsItems = allItems.filter(item => item.messageType === 'connections_status');
+  const regularItems = allItems.filter(item => item.messageType !== 'connections_status');
+  const subjects = groupConnectionsBySubject(connectionsItems, now)
+    .sort((a, b) => a.subjectLabel.localeCompare(b.subjectLabel));
+
+  // Group remaining items by source label, sorted alphabetically
   const sourceMap = new Map();
-  for (const item of allItems) {
+  for (const item of regularItems) {
     const key = item.sourceLabel;
     if (!sourceMap.has(key)) sourceMap.set(key, []);
     sourceMap.get(key).push(item);
   }
   const sources = [...sourceMap.entries()].sort(([a], [b]) => a.localeCompare(b));
 
-  // Overall aggregate across everything
-  const allStatuses = allItems.map(item =>
+  // Overall aggregate across everything — each "connections" subject
+  // collapses to a single status (orange folds into yellow here, same as
+  // the tray icon) so one localized path issue doesn't read as a full outage.
+  const regularStatuses = regularItems.map(item =>
     item.messageType === 'connection_status'
       ? computeConnectionStatus(item, now)
       : (item.computedStatus || 'grey')
   ).filter(Boolean);
+
+  const subjectStatuses = subjects.map(s => s.status === 'orange' ? 'yellow' : s.status);
+
+  const allStatuses = [...regularStatuses, ...subjectStatuses];
 
   const aggregate =
     allStatuses.includes('red')    ? 'red' :
@@ -424,8 +480,16 @@ export default function StatusPanel() {
         <StatusIcon status={aggregate} size={22} />
       </div>
 
-      {/* Scrollable content — one section per source */}
+      {/* Scrollable content — multi-location subjects, then one section per source */}
       <div style={{ flex: 1, overflow: 'auto', padding: '0 20px 16px' }}>
+        {subjects.map((subject, i) => (
+          <ConnectionsSubjectGroup
+            key={subject.subjectId}
+            {...subject}
+            now={now}
+            isLast={i === subjects.length - 1 && sources.length === 0}
+          />
+        ))}
         {sources.map(([label, sourceItems], i) => (
           <SourceSection
             key={label}

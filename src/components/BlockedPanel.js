@@ -1,25 +1,8 @@
 import React from 'react';
-import { Modal } from 'antd';
 import { useMonitorStore, useThemeColors } from '../store';
 
 function BlockedRow({ item }) {
   const c = useThemeColors();
-
-  function handleRestore() {
-    Modal.confirm({
-      title: `Restore "${item.label}"?`,
-      content: (
-        <span style={{ fontSize: 13 }}>
-          This item will be tracked again, but it won&apos;t appear in the status
-          view until the monitoring agent sends its next update.
-          Depending on your check interval, that may take a few minutes.
-        </span>
-      ),
-      okText: 'Restore',
-      cancelText: 'Cancel',
-      onOk: () => window.electron?.restoreItem(item.topicKey),
-    });
-  }
 
   return (
     <div style={{
@@ -40,7 +23,7 @@ function BlockedRow({ item }) {
         )}
       </div>
       <button
-        onClick={handleRestore}
+        onClick={() => window.electron?.restoreItem(item.topicKey)}
         style={{
           background: 'none',
           border: `1px solid ${c.border}`,

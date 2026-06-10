@@ -5,9 +5,31 @@ import BlockedPanel from './components/BlockedPanel';
 import Settings from './components/Settings';
 import { useMonitorStore, useSettingsStore } from './store';
 import { getColors } from './theme';
+import { subjectAggregateStatus } from './lib/connectionStatus';
 
+// Mirrors aggregateItemsStatus in main.js — keep in sync. "connections"
+// items are grouped by subject so one location's localized path issue
+// (orange) doesn't read as a full outage (red) for the header dot.
 function aggregateFromItems(items) {
-  const statuses = Object.values(items).map((i) => i.computedStatus).filter(Boolean);
+  const statuses = [];
+  const subjectGroups = new Map();
+
+  for (const item of Object.values(items)) {
+    if (item.messageType === 'connections_status') {
+      const sid = item.payload?.subjectId;
+      if (!subjectGroups.has(sid)) subjectGroups.set(sid, []);
+      subjectGroups.get(sid).push(item);
+    } else if (item.computedStatus) {
+      statuses.push(item.computedStatus);
+    }
+  }
+
+  for (const groupItems of subjectGroups.values()) {
+    const downCount = groupItems.filter((i) => i.computedStatus === 'red').length;
+    const status = subjectAggregateStatus(downCount, groupItems.length);
+    statuses.push(status === 'orange' ? 'yellow' : status);
+  }
+
   if (!statuses.length) return null;
   if (statuses.includes('red'))    return 'red';
   if (statuses.includes('yellow')) return 'yellow';
