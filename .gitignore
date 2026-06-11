@@ -8,3 +8,7 @@ distribute/
 /out
 /.vite/build
 /.vite/build
+.vite/build/icons.js
+.vite/build/icons.js
+.vite/build/main.js
+.vite/build/preload.js
