@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Tag } from 'antd';
+import { Tag, Switch } from 'antd';
 import {
   CheckCircleFilled, WarningFilled, CloseCircleFilled,
   ClockCircleOutlined, ThunderboltFilled,
@@ -7,7 +7,7 @@ import {
 import { useMonitorStore, useThemeColors } from '../store';
 import {
   computeConnectionStatus, hasRecentInstability, groupConnectionsBySubject,
-  formatRelative, isGhostItem,
+  formatRelative, isGhostItem, isQuietItem, isQuietSubject,
 } from '../lib/connectionStatus';
 import StaleCleanupModal from './StaleCleanupModal';
 
@@ -286,7 +286,7 @@ function ProcessRow({ item }) {
 
 // ─── Source section ───────────────────────────────────────────────────────────
 
-function SourceSection({ label, sourceItems, now, isLast }) {
+function SourceSection({ label, sourceItems, totalCount = sourceItems.length, now, isLast }) {
   const c = useThemeColors();
   const statuses = sourceItems.map(item =>
     item.messageType === 'connection_status'
@@ -320,7 +320,9 @@ function SourceSection({ label, sourceItems, now, isLast }) {
           {label}
         </span>
         <span style={{ fontSize: 10, color: c.textFaint }}>
-          {sourceItems.length} check{sourceItems.length !== 1 ? 's' : ''}
+          {sourceItems.length === totalCount
+            ? `${totalCount} check${totalCount !== 1 ? 's' : ''}`
+            : `${sourceItems.length} of ${totalCount} check${totalCount !== 1 ? 's' : ''}`}
         </span>
       </div>
       {sorted.map(item =>
@@ -396,6 +398,7 @@ export default function StatusPanel() {
   }, []);
 
   const [cleanupModalOpen, setCleanupModalOpen] = useState(false);
+  const [focusMode, setFocusMode] = useState(true);
 
   if (connectionState === 'black') return <BlackPanel />;
 
@@ -423,6 +426,21 @@ export default function StatusPanel() {
     sourceMap.get(key).push(item);
   }
   const sources = [...sourceMap.entries()].sort(([a], [b]) => a.localeCompare(b));
+
+  // Focus mode: hide quiet subjects/items so what needs attention is visible
+  // immediately. Hero counts above already cover the full data set.
+  const hiddenSubjects = subjects.filter(isQuietSubject);
+  const hiddenRegularItems = regularItems.filter(item => isQuietItem(item, now));
+  const hiddenCount = hiddenRegularItems.length
+    + hiddenSubjects.reduce((sum, s) => sum + s.total, 0);
+
+  const visibleSubjects = focusMode ? subjects.filter(s => !isQuietSubject(s)) : subjects;
+
+  const visibleSources = focusMode
+    ? sources
+        .map(([label, sourceItems]) => [label, sourceItems.filter(item => !isQuietItem(item, now)), sourceItems.length])
+        .filter(([, visible]) => visible.length > 0)
+    : sources.map(([label, sourceItems]) => [label, sourceItems, sourceItems.length]);
 
   // Overall aggregate across everything — each "connections" subject
   // collapses to a single status (orange folds into yellow here, same as
@@ -498,25 +516,53 @@ export default function StatusPanel() {
         </div>
       )}
 
+      {/* Focus mode toggle */}
+      <div style={{
+        padding: '6px 20px',
+        borderBottom: `1px solid ${c.borderFaint}`,
+        display: 'flex', alignItems: 'center', gap: 8,
+        fontSize: 11, color: c.textTertiary,
+      }}>
+        <Switch size="small" checked={focusMode} onChange={setFocusMode} />
+        <span>
+          {focusMode
+            ? `Issues only${hiddenCount > 0 ? ` — ${hiddenCount} OK hidden` : ''}`
+            : 'Showing everything'}
+        </span>
+      </div>
+
       {/* Scrollable content — multi-location subjects, then one section per source */}
       <div style={{ flex: 1, overflow: 'auto', padding: '0 20px 16px' }}>
-        {subjects.map((subject, i) => (
-          <ConnectionsSubjectGroup
-            key={subject.subjectId}
-            {...subject}
-            now={now}
-            isLast={i === subjects.length - 1 && sources.length === 0}
-          />
-        ))}
-        {sources.map(([label, sourceItems], i) => (
-          <SourceSection
-            key={label}
-            label={label}
-            sourceItems={sourceItems}
-            now={now}
-            isLast={i === sources.length - 1}
-          />
-        ))}
+        {visibleSubjects.length === 0 && visibleSources.length === 0 ? (
+          <div style={{ padding: '32px 0', textAlign: 'center', color: c.textTertiary }}>
+            <CheckCircleFilled style={{ fontSize: 28, color: '#52c41a', marginBottom: 8 }} />
+            <div style={{ fontSize: 12, color: c.textSecondary }}>Everything's healthy</div>
+            <div style={{ fontSize: 11, marginTop: 4 }}>
+              {hiddenCount} item{hiddenCount !== 1 ? 's' : ''} OK and hidden
+            </div>
+          </div>
+        ) : (
+          <>
+            {visibleSubjects.map((subject, i) => (
+              <ConnectionsSubjectGroup
+                key={subject.subjectId}
+                {...subject}
+                now={now}
+                isLast={i === visibleSubjects.length - 1 && visibleSources.length === 0}
+              />
+            ))}
+            {visibleSources.map(([label, sourceItems, totalCount], i) => (
+              <SourceSection
+                key={label}
+                label={label}
+                sourceItems={sourceItems}
+                totalCount={totalCount}
+                now={now}
+                isLast={i === visibleSources.length - 1}
+              />
+            ))}
+          </>
+        )}
       </div>
 
       <StaleCleanupModal

@@ -115,3 +115,22 @@ export function isGhostItem(item, now) {
   if (!ts) return false;
   return now - new Date(ts).getTime() > GHOST_THRESHOLD_MS;
 }
+
+// ─── Focus mode (hide "everything's fine" items) ───────────────────────────
+
+// True if this item is currently healthy with nothing noteworthy to
+// report — the "everything's fine, nothing to look at" case that focus
+// mode hides by default.
+export function isQuietItem(item, now) {
+  if (item.messageType === 'connection_status') {
+    return computeConnectionStatus(item, now) === 'green' && !hasRecentInstability(item.payload);
+  }
+  return (item.computedStatus || 'grey') === 'green';
+}
+
+// Same idea for a "connections" subject (multi-location group): quiet only
+// if every location is up and none flapped recently. Subjects are shown or
+// hidden as a whole.
+export function isQuietSubject(subject) {
+  return subject.status === 'green' && subject.instableCount === 0;
+}

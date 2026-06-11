@@ -15,6 +15,7 @@ A lightweight system-tray app for monitoring connection and process health via M
 - **MQTT broker support** — connects to any standard MQTT broker with optional username/password auth
 - **Multi-source** — configure multiple project/system sources, each independently tracked
 - **Trend indicators** — flags a connection that flapped or saw packet loss recently with a small badge, even if it's green right now
+- **Issues-only focus mode** — by default, hides green/stable checks (and fully-healthy multi-location subjects or source sections) so degraded or down items aren't buried; one switch reveals everything
 - **Multi-location connection checks** — groups checks of the same circuit/host reported from multiple sites into one subject, so a real outage can be told apart from a localized path issue
 - **Remove stale entries** — clear ghost monitors that are no longer publishing, individually or via an automatic "stale entries" review-and-bulk-clean prompt for entries with no update in 24h+
 
