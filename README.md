@@ -16,7 +16,7 @@ A lightweight system-tray app for monitoring connection and process health via M
 - **Multi-source** — configure multiple project/system sources, each independently tracked
 - **Trend indicators** — flags a connection that flapped or saw packet loss recently with a small badge, even if it's green right now
 - **Multi-location connection checks** — groups checks of the same circuit/host reported from multiple sites into one subject, so a real outage can be told apart from a localized path issue
-- **Remove stale entries** — clear ghost monitors that are no longer publishing
+- **Remove stale entries** — clear ghost monitors that are no longer publishing, individually or via an automatic "stale entries" review-and-bulk-clean prompt for entries with no update in 24h+
 
 ## Screenshots
 
@@ -157,6 +157,21 @@ Orange folds into yellow for the overall tray icon and header dot — only a
 majority-down subject (red) is treated as a full outage. If every location
 is currently up but one or more flapped recently, the subject shows an
 "Up now, but N of M locations flapped recently" note instead.
+
+### Stale Entry Cleanup
+
+If an entry's underlying check hasn't reported in over 24 hours, it's
+flagged as a "stale" entry — most likely a decommissioned source whose last
+report (or retained message) is just sitting around. A banner appears at
+the top of the status view:
+
+> ⚠ N stale entries haven't reported in over a day — Review & Clean
+
+Clicking it opens a review list with each stale entry pre-checked. Uncheck
+any you want to keep, then click "Remove Selected" to clear them in one
+batch — this clears their retained MQTT message (so they won't reappear on
+reconnect) and moves them to the **Blocked Items** panel, where they can be
+restored at any time.
 
 ## Tech Stack
 

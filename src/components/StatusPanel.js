@@ -7,22 +7,11 @@ import {
 import { useMonitorStore, useThemeColors } from '../store';
 import {
   computeConnectionStatus, hasRecentInstability, groupConnectionsBySubject,
+  formatRelative, isGhostItem,
 } from '../lib/connectionStatus';
+import StaleCleanupModal from './StaleCleanupModal';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatRelative(isoString) {
-  if (!isoString) return 'Never';
-  const diff = Date.now() - new Date(isoString).getTime();
-  const hours = Math.floor(diff / 3_600_000);
-  const mins  = Math.floor((diff % 3_600_000) / 60_000);
-  const secs  = Math.floor((diff % 60_000) / 1_000);
-  if (hours > 48) return `${Math.floor(hours / 24)}d ago`;
-  if (hours > 0)  return `${hours}h ${mins}m ago`;
-  if (mins > 0)   return `${mins}m ago`;
-  if (secs > 10)  return `${secs}s ago`;
-  return 'Just now';
-}
 
 function formatAge(seconds) {
   if (seconds < 60)    return `${Math.round(seconds)}s`;
@@ -406,10 +395,17 @@ export default function StatusPanel() {
     return () => clearInterval(id);
   }, []);
 
+  const [cleanupModalOpen, setCleanupModalOpen] = useState(false);
+
   if (connectionState === 'black') return <BlackPanel />;
 
   const allItems = Object.values(items);
   if (!allItems.length) return <GreyPanel />;
+
+  // Items whose underlying check hasn't reported in a long time — likely
+  // abandoned/decommissioned sources. Surfaced via a banner offering a
+  // one-click bulk cleanup.
+  const ghostItems = allItems.filter(item => isGhostItem(item, now));
 
   // "connections" items are a multi-location view of a shared subject (e.g.
   // a WAN circuit checked from several sites) — group those by subject
@@ -480,6 +476,28 @@ export default function StatusPanel() {
         <StatusIcon status={aggregate} size={22} />
       </div>
 
+      {/* Stale entries banner */}
+      {ghostItems.length > 0 && (
+        <div
+          onClick={() => setCleanupModalOpen(true)}
+          style={{
+            padding: '8px 20px',
+            background: c.statusBg.yellow,
+            borderBottom: `1px solid ${c.statusBorder.yellow}`,
+            display: 'flex', alignItems: 'center', gap: 8,
+            cursor: 'pointer', fontSize: 11, color: '#faad14',
+          }}
+        >
+          <WarningFilled style={{ fontSize: 13, flexShrink: 0 }} />
+          <span style={{ flex: 1 }}>
+            {ghostItems.length} stale {ghostItems.length === 1 ? 'entry hasn\'t' : 'entries haven\'t'} reported in over a day
+          </span>
+          <span style={{ fontWeight: 600, textDecoration: 'underline', flexShrink: 0 }}>
+            Review &amp; Clean
+          </span>
+        </div>
+      )}
+
       {/* Scrollable content — multi-location subjects, then one section per source */}
       <div style={{ flex: 1, overflow: 'auto', padding: '0 20px 16px' }}>
         {subjects.map((subject, i) => (
@@ -501,6 +519,11 @@ export default function StatusPanel() {
         ))}
       </div>
 
+      <StaleCleanupModal
+        open={cleanupModalOpen}
+        onClose={() => setCleanupModalOpen(false)}
+        ghostItems={ghostItems}
+      />
     </div>
   );
 }

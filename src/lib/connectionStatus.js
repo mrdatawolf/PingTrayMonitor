@@ -74,3 +74,44 @@ export function groupConnectionsBySubject(connectionsItems, now) {
     };
   });
 }
+
+// Formats an ISO timestamp as a short "X ago" string for display.
+export function formatRelative(isoString) {
+  if (!isoString) return 'Never';
+  const diff = Date.now() - new Date(isoString).getTime();
+  const hours = Math.floor(diff / 3_600_000);
+  const mins  = Math.floor((diff % 3_600_000) / 60_000);
+  const secs  = Math.floor((diff % 60_000) / 1_000);
+  if (hours > 48) return `${Math.floor(hours / 24)}d ago`;
+  if (hours > 0)  return `${hours}h ${mins}m ago`;
+  if (mins > 0)   return `${mins}m ago`;
+  if (secs > 10)  return `${secs}s ago`;
+  return 'Just now';
+}
+
+// ─── Ghost / stale-entry detection ─────────────────────────────────────────
+
+// The last time this item's underlying check actually ran/reported,
+// independent of when *our app* last received a message about it. An
+// agent that's still alive (even if reporting "down") refreshes
+// payload.checkedAt / lastReceived on every check; an item where this is
+// frozen in the past is one whose source has stopped reporting entirely.
+// Falls back to lastUpdated (when we last received any message for this
+// topic) for payloads that carry no timestamp of their own.
+function lastActivityTimestamp(item) {
+  const { payload } = item;
+  return payload?.checkedAt || item.lastReceivedTracked || payload?.lastReceived || item.lastUpdated;
+}
+
+// An item whose underlying check hasn't reported in this long is treated
+// as an abandoned/decommissioned source rather than a real outage — a real
+// outage would still produce periodic "down" reports. Renderer-only review
+// concern: main.js's tray/aggregate status doesn't depend on "ghost"
+// status, so there's no main.js mirror to keep in sync here.
+export const GHOST_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+export function isGhostItem(item, now) {
+  const ts = lastActivityTimestamp(item);
+  if (!ts) return false;
+  return now - new Date(ts).getTime() > GHOST_THRESHOLD_MS;
+}

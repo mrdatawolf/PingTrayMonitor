@@ -13,8 +13,9 @@ contextBridge.exposeInMainWorld('electron', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
 
-  removeItem:        (topicKey) => ipcRenderer.invoke('items:remove', topicKey),
-  getRemovedTopics:  ()         => ipcRenderer.invoke('items:getRemovedTopics'),
+  removeItem:        (topicKey)  => ipcRenderer.invoke('items:remove', topicKey),
+  removeItems:       (topicKeys) => ipcRenderer.invoke('items:removeMany', topicKeys),
+  getRemovedTopics:  ()          => ipcRenderer.invoke('items:getRemovedTopics'),
   restoreItem:       (topicKey) => ipcRenderer.invoke('items:restore', topicKey),
   onRemovedTopics:   (cb)       => ipcRenderer.on('mqtt:removedTopics', (_e, topics) => cb(topics)),
 
