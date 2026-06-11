@@ -267,6 +267,18 @@ function connectMqtt() {
   mqttClient.on('message', (topic, message) => {
     if (removedTopics.has(topic)) return;
 
+    // Broker-side retained-clear (empty payload): drop it from the live
+    // view immediately rather than leaving a stale entry until restart.
+    // This is NOT a user removal — don't block the topic, so it can
+    // reappear normally if the source starts publishing again.
+    if (message.length === 0) {
+      if (items.delete(topic)) {
+        updateTray(currentTrayStatus());
+        broadcastItems();
+      }
+      return;
+    }
+
     let payload;
     try { payload = JSON.parse(message.toString()); } catch { return; }
 
@@ -514,7 +526,10 @@ ipcMain.handle('settings:save', (_e, newSettings) => {
   return { ok: true };
 });
 
-ipcMain.handle('items:remove', (_e, topicKey) => {
+// Shared by items:remove and items:removeMany. Does NOT call
+// saveRemovedTopics() or broadcast — callers batch those once after
+// processing one or more topics.
+function removeTopicInternal(topicKey) {
   const item = items.get(topicKey);
   items.delete(topicKey);
   removedTopics.set(topicKey, {
@@ -522,7 +537,6 @@ ipcMain.handle('items:remove', (_e, topicKey) => {
     sourceLabel: item?.sourceLabel || '',
     label: item?.payload?.label || item?.payload?.id || topicKey,
   });
-  saveRemovedTopics();
 
   // Publish an empty retained payload — this tells the broker to delete the
   // retained message so the ghost doesn't come back on reconnect.
@@ -534,11 +548,27 @@ ipcMain.handle('items:remove', (_e, topicKey) => {
   } else {
     console.warn(`[MQTT] Not connected — removed locally but could not clear retained: ${topicKey}`);
   }
+}
 
+ipcMain.handle('items:remove', (_e, topicKey) => {
+  removeTopicInternal(topicKey);
+  saveRemovedTopics();
   updateTray(currentTrayStatus());
   broadcastItems();
   broadcastRemovedTopics();
   return { ok: true };
+});
+
+ipcMain.handle('items:removeMany', (_e, topicKeys) => {
+  const keys = Array.isArray(topicKeys) ? topicKeys : [];
+  for (const topicKey of keys) {
+    if (items.has(topicKey)) removeTopicInternal(topicKey);
+  }
+  saveRemovedTopics();
+  updateTray(currentTrayStatus());
+  broadcastItems();
+  broadcastRemovedTopics();
+  return { ok: true, removed: keys.length };
 });
 
 ipcMain.handle('items:getRemovedTopics', () => [...removedTopics.values()]);
