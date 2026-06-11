@@ -14,6 +14,8 @@ A lightweight system-tray app for monitoring connection and process health via M
 - **Process monitoring** — displays pipeline/process status from MQTT status topics; sends desktop notifications on state changes
 - **MQTT broker support** — connects to any standard MQTT broker with optional username/password auth
 - **Multi-source** — configure multiple project/system sources, each independently tracked
+- **Trend indicators** — flags a connection that flapped or saw packet loss recently with a small badge, even if it's green right now
+- **Multi-location connection checks** — groups checks of the same circuit/host reported from multiple sites into one subject, so a real outage can be told apart from a localized path issue
 - **Remove stale entries** — clear ghost monitors that are no longer publishing
 
 ## Screenshots
@@ -81,9 +83,18 @@ Settings are persisted to the OS user-data directory (`app.getPath('userData')`)
   "latencyMs": 12.4,
   "packetLoss": 0,
   "lastReceived": "2024-01-01T00:00:00.000Z",
-  "refreshMinutes": 1
+  "refreshMinutes": 1,
+  "transitions1h": 0,
+  "rollingPacketLoss10": 0
 }
 ```
+
+`transitions1h` and `rollingPacketLoss10` are optional trend fields — the
+number of up/down flips in the last hour, and the rolling packet-loss
+percentage over the last 10 checks. When either is non-zero, a small
+lightning-bolt badge appears on the row even if the check is currently
+green, so a connection that's up right now but was unstable recently
+doesn't look silently fine.
 
 **process_status**
 ```json
@@ -102,6 +113,50 @@ Settings are persisted to the OS user-data directory (`app.getPath('userData')`)
 | < 3× refreshMinutes | Green |
 | 3×–5× refreshMinutes | Yellow |
 | > 5× refreshMinutes | Red |
+
+### Multi-Location Connection Checks (`connections/#`)
+
+For a circuit or host that's checked from more than one site (e.g. a WAN
+link monitored independently from each branch that depends on it), agents
+publish to a broker-wide topic tree:
+
+```
+connections/<subjectId>/<projectId>/<systemId>/<id>
+```
+
+This is subscribed to automatically and isn't tied to any configured
+source — every location publishes its own check of the same `subjectId`.
+
+**Payload** — same shape as `connection_status`, plus `subjectId` /
+`subjectLabel`:
+
+```json
+{
+  "subjectId": "circuit-123",
+  "subjectLabel": "Branch A <-> HQ Circuit",
+  "id": "checked-from-branch-a",
+  "label": "From Branch A",
+  "available": true,
+  "latencyMs": 12.4,
+  "packetLoss": 0,
+  "lastReceived": "2024-01-01T00:00:00.000Z",
+  "refreshMinutes": 1
+}
+```
+
+The status panel groups items by `subjectId` into their own section at the
+top, with a subject-level dot summarizing all locations:
+
+| Down locations | Subject status | Meaning |
+|---|---|---|
+| 0 | Green | All locations report it up |
+| ≤ 50% | Orange | Likely a path issue local to those reporting locations, not the circuit itself |
+| > 50% | Red | Majority down — likely the circuit/subject itself is down |
+
+Orange folds into yellow for the overall tray icon and header dot — only a
+majority-down subject (red) is treated as a full outage. If every location
+is currently up but one or more flapped recently, the subject shows an
+"Up now, but N of M locations flapped recently" note instead.
 
 ## Tech Stack
 
