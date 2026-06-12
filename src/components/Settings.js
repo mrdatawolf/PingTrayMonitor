@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
+import mqtt from 'mqtt';
 import { Form, Input, InputNumber, Button, Divider, message, Select, Switch, Segmented } from 'antd';
-import { SaveOutlined, PlusOutlined, DeleteOutlined, MoonOutlined, SunOutlined } from '@ant-design/icons';
+import { SaveOutlined, PlusOutlined, DeleteOutlined, MoonOutlined, SunOutlined, ApiOutlined } from '@ant-design/icons';
 import { useSettingsStore } from '../store';
 import { getColors } from '../theme';
 
 export default function Settings({ onSaved }) {
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [autostart, setAutostartState] = useState(false);
   const [autostartLoading, setAutostartLoading] = useState(false);
   const setStoreSettings = useSettingsStore((s) => s.setSettings);
@@ -39,6 +41,7 @@ export default function Settings({ onSaved }) {
       mqttHost:     storeSettings.mqttHost,
       mqttPort:     storeSettings.mqttPort,
       mqttWsPort:   storeSettings.mqttWsPort,
+      mqttWsPath:   storeSettings.mqttWsPath,
       mqttUsername: storeSettings.mqttUsername,
       mqttPassword: storeSettings.mqttPassword,
       sources: (storeSettings.sources || []).map((s) => ({
@@ -67,6 +70,7 @@ export default function Settings({ onSaved }) {
       mqttHost:     values.mqttHost,
       mqttPort:     values.mqttPort,
       mqttWsPort:   values.mqttWsPort,
+      mqttWsPath:   values.mqttWsPath || '/ws',
       mqttUsername: values.mqttUsername || '',
       mqttPassword: values.mqttPassword || '',
       sources,
@@ -84,6 +88,50 @@ export default function Settings({ onSaved }) {
     } finally {
       setSaving(false);
     }
+  }
+
+  function testConnection() {
+    const { mqttHost, mqttWsPort, mqttWsPath, mqttUsername, mqttPassword } = form.getFieldsValue();
+
+    if (!mqttHost || !mqttWsPort) {
+      message.error('Host and WS port are required');
+      return;
+    }
+
+    // GitHub Pages (https) requires wss to avoid mixed-content blocking. In
+    // Electron, window.location.protocol gives no such signal, so fall back
+    // to the port: 443/8884 are the conventional secure-websocket ports
+    // (e.g. a Cloudflare-fronted broker).
+    const securePorts = [443, 8884];
+    const scheme = (window.location.protocol === 'https:' || securePorts.includes(Number(mqttWsPort)))
+      ? 'wss' : 'ws';
+    const path = (mqttWsPath || '/').trim();
+    const url = `${scheme}://${mqttHost}:${mqttWsPort}${path.startsWith('/') ? path : `/${path}`}`;
+
+    setTesting(true);
+    const opts = { connectTimeout: 5000, reconnectPeriod: 0 };
+    if (mqttUsername) {
+      opts.username = mqttUsername;
+      opts.password = mqttPassword || '';
+    }
+
+    const client = mqtt.connect(url, opts);
+    let done = false;
+
+    const timer = setTimeout(() => finish(false, 'Timed out waiting for broker'), 6000);
+
+    function finish(ok, detail) {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      client.end(true);
+      setTesting(false);
+      if (ok) message.success(`Connected via ${url}`);
+      else message.error(detail || 'Connection failed');
+    }
+
+    client.on('connect', () => finish(true));
+    client.on('error', (err) => finish(false, err.message));
   }
 
   const labelStyle = { color: c.textSecondary, fontSize: 12 };
@@ -155,6 +203,16 @@ export default function Settings({ onSaved }) {
             <InputNumber
               min={1} max={65535}
               style={{ width: '100%', ...inputStyle }}
+            />
+          </Form.Item>
+          <Form.Item
+            label={<span style={labelStyle}>WS Path</span>}
+            name="mqttWsPath"
+            style={{ width: 70 }}
+          >
+            <Input
+              placeholder="/ws"
+              style={inputStyle}
             />
           </Form.Item>
         </div>
@@ -275,17 +333,27 @@ export default function Settings({ onSaved }) {
           )}
         </Form.List>
 
-        <Form.Item style={{ marginBottom: 0, marginTop: 16 }}>
+        <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
           <Button
-            type="primary"
-            htmlType="submit"
-            icon={<SaveOutlined />}
-            loading={saving}
-            block
+            icon={<ApiOutlined />}
+            loading={testing}
+            onClick={testConnection}
+            style={{ flex: '0 0 auto' }}
           >
-            Save & Reconnect
+            Test Connection
           </Button>
-        </Form.Item>
+          <Form.Item style={{ marginBottom: 0, flex: 1 }}>
+            <Button
+              type="primary"
+              htmlType="submit"
+              icon={<SaveOutlined />}
+              loading={saving}
+              block
+            >
+              Save & Reconnect
+            </Button>
+          </Form.Item>
+        </div>
 
       </Form>
     </div>
