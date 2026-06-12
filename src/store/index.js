@@ -17,6 +17,7 @@ export const useSettingsStore = create((set) => ({
   mqttPort:     1883,
   mqttWsPort:   9001,
   mqttWsPath:   '/ws',
+  mqttProtocol: 'mqtt', // 'mqtt' | 'mqtts' | 'ws' | 'wss'
   mqttUsername: '',
   mqttPassword: '',
   sources:      [],
@@ -28,6 +29,7 @@ export const useSettingsStore = create((set) => ({
     mqttPort:     s.mqttPort     || 1883,
     mqttWsPort:   s.mqttWsPort   || 9001,
     mqttWsPath:   s.mqttWsPath   || '/ws',
+    mqttProtocol: s.mqttProtocol || 'mqtt',
     mqttUsername: s.mqttUsername || '',
     mqttPassword: s.mqttPassword || '',
     sources:      s.sources      || [],

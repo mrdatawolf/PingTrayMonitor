@@ -4,6 +4,8 @@ import { Form, Input, InputNumber, Button, Divider, message, Select, Switch, Seg
 import { SaveOutlined, PlusOutlined, DeleteOutlined, MoonOutlined, SunOutlined, ApiOutlined } from '@ant-design/icons';
 import { useSettingsStore } from '../store';
 import { getColors } from '../theme';
+import { buildConnectionUrl } from '../lib/mqttClient';
+import * as runtime from '../lib/runtime';
 
 export default function Settings({ onSaved }) {
   const [form] = Form.useForm();
@@ -16,15 +18,16 @@ export default function Settings({ onSaved }) {
   const mode = useSettingsStore((s) => s.theme);
   const setTheme = useSettingsStore((s) => s.setTheme);
   const c = getColors(mode);
+  const isElectron = runtime.isElectron;
 
   useEffect(() => {
-    window.electron.getAutostart().then(setAutostartState);
+    runtime.getAutostart().then(setAutostartState);
   }, []);
 
   async function toggleAutostart(checked) {
     setAutostartLoading(true);
     try {
-      const result = await window.electron.setAutostart(checked);
+      const result = await runtime.setAutostart(checked);
       setAutostartState(result.enabled);
     } finally {
       setAutostartLoading(false);
@@ -32,7 +35,7 @@ export default function Settings({ onSaved }) {
   }
 
   async function changeTheme(value) {
-    const result = await window.electron.setTheme(value);
+    const result = await runtime.setTheme(value);
     setTheme(result.theme);
   }
 
@@ -42,6 +45,7 @@ export default function Settings({ onSaved }) {
       mqttPort:     storeSettings.mqttPort,
       mqttWsPort:   storeSettings.mqttWsPort,
       mqttWsPath:   storeSettings.mqttWsPath,
+      mqttProtocol: storeSettings.mqttProtocol,
       mqttUsername: storeSettings.mqttUsername,
       mqttPassword: storeSettings.mqttPassword,
       sources: (storeSettings.sources || []).map((s) => ({
@@ -71,6 +75,7 @@ export default function Settings({ onSaved }) {
       mqttPort:     values.mqttPort,
       mqttWsPort:   values.mqttWsPort,
       mqttWsPath:   values.mqttWsPath || '/ws',
+      mqttProtocol: isElectron ? (values.mqttProtocol || 'mqtt') : 'wss',
       mqttUsername: values.mqttUsername || '',
       mqttPassword: values.mqttPassword || '',
       sources,
@@ -78,7 +83,7 @@ export default function Settings({ onSaved }) {
 
     setSaving(true);
     try {
-      const result = await window.electron.saveSettings(newSettings);
+      const result = await runtime.saveSettings(newSettings);
       if (result.ok) {
         setStoreSettings(newSettings);
         onSaved?.();
@@ -91,22 +96,25 @@ export default function Settings({ onSaved }) {
   }
 
   function testConnection() {
-    const { mqttHost, mqttWsPort, mqttWsPath, mqttUsername, mqttPassword } = form.getFieldsValue();
+    const values = form.getFieldsValue();
+    const { mqttHost, mqttPort, mqttWsPort, mqttWsPath, mqttUsername, mqttPassword } = values;
+    const mqttProtocol = isElectron ? (values.mqttProtocol || 'mqtt') : 'wss';
+    const usesWebSocket = mqttProtocol === 'ws' || mqttProtocol === 'wss';
 
-    if (!mqttHost || !mqttWsPort) {
-      message.error('Host and WS port are required');
+    if (!mqttHost) {
+      message.error('Host is required');
+      return;
+    }
+    if (usesWebSocket && !mqttWsPort) {
+      message.error('WS port is required');
+      return;
+    }
+    if (!usesWebSocket && !mqttPort) {
+      message.error('Port is required');
       return;
     }
 
-    // GitHub Pages (https) requires wss to avoid mixed-content blocking. In
-    // Electron, window.location.protocol gives no such signal, so fall back
-    // to the port: 443/8884 are the conventional secure-websocket ports
-    // (e.g. a Cloudflare-fronted broker).
-    const securePorts = [443, 8884];
-    const scheme = (window.location.protocol === 'https:' || securePorts.includes(Number(mqttWsPort)))
-      ? 'wss' : 'ws';
-    const path = (mqttWsPath || '/').trim();
-    const url = `${scheme}://${mqttHost}:${mqttWsPort}${path.startsWith('/') ? path : `/${path}`}`;
+    const url = buildConnectionUrl({ mqttHost, mqttPort, mqttWsPort, mqttWsPath, mqttProtocol });
 
     setTesting(true);
     const opts = { connectTimeout: 5000, reconnectPeriod: 0 };
@@ -160,10 +168,12 @@ export default function Settings({ onSaved }) {
           ]}
         />
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <span style={{ fontSize: 12, color: c.textBody }}>Start automatically when you log in</span>
-        <Switch checked={autostart} loading={autostartLoading} onChange={toggleAutostart} size="small" />
-      </div>
+      {isElectron && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <span style={{ fontSize: 12, color: c.textBody }}>Start automatically when you log in</span>
+          <Switch checked={autostart} loading={autostartLoading} onChange={toggleAutostart} size="small" />
+        </div>
+      )}
       <Divider style={{ borderColor: c.borderSubtle, margin: '4px 0 16px' }} />
 
       <Form form={form} layout="vertical" onFinish={save} size="small">
@@ -183,6 +193,24 @@ export default function Settings({ onSaved }) {
               style={inputStyle}
             />
           </Form.Item>
+          {isElectron && (
+            <Form.Item
+              label={<span style={labelStyle}>Protocol</span>}
+              name="mqttProtocol"
+              initialValue="mqtt"
+              style={{ width: 92 }}
+            >
+              <Select
+                style={{ background: c.inputBg }}
+                options={[
+                  { value: 'mqtt',  label: 'mqtt' },
+                  { value: 'mqtts', label: 'mqtts' },
+                  { value: 'ws',    label: 'ws' },
+                  { value: 'wss',   label: 'wss' },
+                ]}
+              />
+            </Form.Item>
+          )}
           <Form.Item
             label={<span style={labelStyle}>Port</span>}
             name="mqttPort"

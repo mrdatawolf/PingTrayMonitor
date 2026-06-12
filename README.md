@@ -53,6 +53,22 @@ npm run make
 
 Output installers are placed in `dist/`.
 
+### Web Build (GitHub Pages)
+
+```bash
+npm run build:web
+```
+
+Builds a browser-only version of the UI into `/docs`, suitable for GitHub
+Pages ("Deploy from a branch"). The `deploy-pages.yml` workflow runs this
+automatically on pushes to `main` and commits the updated `docs/` output.
+
+Browsers can't open raw TCP sockets, and an `https://` page can't open an
+insecure `ws://` connection, so the web build always connects via **`wss://`**
+regardless of the saved Protocol setting. Point it at a broker that exposes a
+TLS WebSocket listener — directly or via a reverse proxy / tunnel (e.g.
+Cloudflare Tunnel) — using the **WS Port** / **WS Path** settings.
+
 ## Configuration
 
 Open the app and click the gear icon to configure:
@@ -60,11 +76,19 @@ Open the app and click the gear icon to configure:
 | Field | Description |
 |---|---|
 | **MQTT Host** | Broker hostname or IP |
-| **MQTT Port** | Broker port (default: 1883) |
+| **Protocol** *(desktop only)* | Connection scheme — `mqtt`, `mqtts`, `ws`, or `wss` (default: `mqtt`) |
+| **MQTT Port** | Broker port for `mqtt`/`mqtts` (default: 1883) |
+| **WS Port** | Broker WebSocket port for `ws`/`wss` (default: 9001) |
+| **WS Path** | WebSocket path for `ws`/`wss` (default: `/ws`) |
 | **Username / Password** | Optional broker credentials |
 | **Sources** | One or more `projectId/systemId` pairs with a label and type |
 
-Settings are persisted to the OS user-data directory (`app.getPath('userData')`).
+Click **Test Connection** to open a short-lived connection with the current
+settings and confirm the broker is reachable before saving.
+
+Settings are persisted to the OS user-data directory
+(`app.getPath('userData')`) in the desktop app, or to the browser's
+`localStorage` in the [web build](#web-build-github-pages).
 
 ### Source Types
 
