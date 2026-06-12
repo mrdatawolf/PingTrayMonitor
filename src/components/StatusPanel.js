@@ -9,6 +9,7 @@ import {
   computeConnectionStatus, hasRecentInstability, groupConnectionsBySubject,
   formatRelative, isGhostItem, isQuietItem, isQuietSubject,
 } from '../lib/connectionStatus';
+import * as runtime from '../lib/runtime';
 import StaleCleanupModal from './StaleCleanupModal';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -115,7 +116,7 @@ function DeleteButton({ topicKey }) {
   function handleClick(e) {
     e.stopPropagation();
     if (!confirming) { setConfirming(true); return; }
-    window.electron?.removeItem(topicKey);
+    runtime.removeItem(topicKey);
     setConfirming(false);
   }
 

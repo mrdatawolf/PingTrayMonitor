@@ -18,25 +18,25 @@ var __privateWrapper = (obj, member, setter, getter) => ({
     return __privateGet(obj, member, getter);
   }
 });
-const require$$3$1 = require("electron");
+const require$$3 = require("electron");
 const path = require("path");
 const fs = require("fs");
-const require$$0$6 = require("stream");
-const require$$0$4 = require("buffer");
-const require$$0$5 = require("events");
-const require$$0$7 = require("tty");
+const require$$1$1 = require("child_process");
+const require$$0$4 = require("tty");
 const require$$1 = require("util");
+const require$$4 = require("net");
+const zlib = require("zlib");
+const require$$0$7 = require("stream");
+const require$$0$5 = require("buffer");
+const require$$0$6 = require("events");
 const require$$0$8 = require("os");
 const require$$7 = require("url");
-const require$$1$2 = require("https");
+const require$$1$3 = require("https");
 const require$$2 = require("http");
-const require$$1$3 = require("net");
-const require$$4 = require("tls");
-const require$$1$1 = require("crypto");
-const require$$0$9 = require("zlib");
-const require$$3 = require("dns");
+const require$$4$1 = require("tls");
+const require$$1$2 = require("crypto");
+const require$$3$1 = require("dns");
 const require$$5 = require("assert");
-const require$$1$4 = require("child_process");
 var commonjsGlobal = typeof globalThis !== "undefined" ? globalThis : typeof window !== "undefined" ? window : typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : {};
 function getDefaultExportFromCjs(x) {
   return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, "default") ? x["default"] : x;
@@ -65,6 +65,561 @@ function getAugmentedNamespace(n) {
   });
   return a;
 }
+var src$1 = { exports: {} };
+var browser$1 = { exports: {} };
+var debug = { exports: {} };
+var ms$1;
+var hasRequiredMs$1;
+function requireMs$1() {
+  if (hasRequiredMs$1) return ms$1;
+  hasRequiredMs$1 = 1;
+  var s = 1e3;
+  var m = s * 60;
+  var h = m * 60;
+  var d = h * 24;
+  var y = d * 365.25;
+  ms$1 = function(val, options) {
+    options = options || {};
+    var type = typeof val;
+    if (type === "string" && val.length > 0) {
+      return parse(val);
+    } else if (type === "number" && isNaN(val) === false) {
+      return options.long ? fmtLong(val) : fmtShort(val);
+    }
+    throw new Error(
+      "val is not a non-empty string or a valid number. val=" + JSON.stringify(val)
+    );
+  };
+  function parse(str) {
+    str = String(str);
+    if (str.length > 100) {
+      return;
+    }
+    var match = /^((?:\d+)?\.?\d+) *(milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|years?|yrs?|y)?$/i.exec(
+      str
+    );
+    if (!match) {
+      return;
+    }
+    var n = parseFloat(match[1]);
+    var type = (match[2] || "ms").toLowerCase();
+    switch (type) {
+      case "years":
+      case "year":
+      case "yrs":
+      case "yr":
+      case "y":
+        return n * y;
+      case "days":
+      case "day":
+      case "d":
+        return n * d;
+      case "hours":
+      case "hour":
+      case "hrs":
+      case "hr":
+      case "h":
+        return n * h;
+      case "minutes":
+      case "minute":
+      case "mins":
+      case "min":
+      case "m":
+        return n * m;
+      case "seconds":
+      case "second":
+      case "secs":
+      case "sec":
+      case "s":
+        return n * s;
+      case "milliseconds":
+      case "millisecond":
+      case "msecs":
+      case "msec":
+      case "ms":
+        return n;
+      default:
+        return void 0;
+    }
+  }
+  function fmtShort(ms2) {
+    if (ms2 >= d) {
+      return Math.round(ms2 / d) + "d";
+    }
+    if (ms2 >= h) {
+      return Math.round(ms2 / h) + "h";
+    }
+    if (ms2 >= m) {
+      return Math.round(ms2 / m) + "m";
+    }
+    if (ms2 >= s) {
+      return Math.round(ms2 / s) + "s";
+    }
+    return ms2 + "ms";
+  }
+  function fmtLong(ms2) {
+    return plural(ms2, d, "day") || plural(ms2, h, "hour") || plural(ms2, m, "minute") || plural(ms2, s, "second") || ms2 + " ms";
+  }
+  function plural(ms2, n, name) {
+    if (ms2 < n) {
+      return;
+    }
+    if (ms2 < n * 1.5) {
+      return Math.floor(ms2 / n) + " " + name;
+    }
+    return Math.ceil(ms2 / n) + " " + name + "s";
+  }
+  return ms$1;
+}
+var hasRequiredDebug;
+function requireDebug() {
+  if (hasRequiredDebug) return debug.exports;
+  hasRequiredDebug = 1;
+  (function(module2, exports) {
+    exports = module2.exports = createDebug.debug = createDebug["default"] = createDebug;
+    exports.coerce = coerce;
+    exports.disable = disable;
+    exports.enable = enable;
+    exports.enabled = enabled;
+    exports.humanize = requireMs$1();
+    exports.names = [];
+    exports.skips = [];
+    exports.formatters = {};
+    var prevTime;
+    function selectColor(namespace) {
+      var hash = 0, i;
+      for (i in namespace) {
+        hash = (hash << 5) - hash + namespace.charCodeAt(i);
+        hash |= 0;
+      }
+      return exports.colors[Math.abs(hash) % exports.colors.length];
+    }
+    function createDebug(namespace) {
+      function debug2() {
+        if (!debug2.enabled) return;
+        var self2 = debug2;
+        var curr = +/* @__PURE__ */ new Date();
+        var ms2 = curr - (prevTime || curr);
+        self2.diff = ms2;
+        self2.prev = prevTime;
+        self2.curr = curr;
+        prevTime = curr;
+        var args = new Array(arguments.length);
+        for (var i = 0; i < args.length; i++) {
+          args[i] = arguments[i];
+        }
+        args[0] = exports.coerce(args[0]);
+        if ("string" !== typeof args[0]) {
+          args.unshift("%O");
+        }
+        var index = 0;
+        args[0] = args[0].replace(/%([a-zA-Z%])/g, function(match, format) {
+          if (match === "%%") return match;
+          index++;
+          var formatter = exports.formatters[format];
+          if ("function" === typeof formatter) {
+            var val = args[index];
+            match = formatter.call(self2, val);
+            args.splice(index, 1);
+            index--;
+          }
+          return match;
+        });
+        exports.formatArgs.call(self2, args);
+        var logFn = debug2.log || exports.log || console.log.bind(console);
+        logFn.apply(self2, args);
+      }
+      debug2.namespace = namespace;
+      debug2.enabled = exports.enabled(namespace);
+      debug2.useColors = exports.useColors();
+      debug2.color = selectColor(namespace);
+      if ("function" === typeof exports.init) {
+        exports.init(debug2);
+      }
+      return debug2;
+    }
+    function enable(namespaces) {
+      exports.save(namespaces);
+      exports.names = [];
+      exports.skips = [];
+      var split = (typeof namespaces === "string" ? namespaces : "").split(/[\s,]+/);
+      var len = split.length;
+      for (var i = 0; i < len; i++) {
+        if (!split[i]) continue;
+        namespaces = split[i].replace(/\*/g, ".*?");
+        if (namespaces[0] === "-") {
+          exports.skips.push(new RegExp("^" + namespaces.substr(1) + "$"));
+        } else {
+          exports.names.push(new RegExp("^" + namespaces + "$"));
+        }
+      }
+    }
+    function disable() {
+      exports.enable("");
+    }
+    function enabled(name) {
+      var i, len;
+      for (i = 0, len = exports.skips.length; i < len; i++) {
+        if (exports.skips[i].test(name)) {
+          return false;
+        }
+      }
+      for (i = 0, len = exports.names.length; i < len; i++) {
+        if (exports.names[i].test(name)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    function coerce(val) {
+      if (val instanceof Error) return val.stack || val.message;
+      return val;
+    }
+  })(debug, debug.exports);
+  return debug.exports;
+}
+var hasRequiredBrowser$1;
+function requireBrowser$1() {
+  if (hasRequiredBrowser$1) return browser$1.exports;
+  hasRequiredBrowser$1 = 1;
+  (function(module2, exports) {
+    exports = module2.exports = requireDebug();
+    exports.log = log;
+    exports.formatArgs = formatArgs;
+    exports.save = save;
+    exports.load = load2;
+    exports.useColors = useColors;
+    exports.storage = "undefined" != typeof chrome && "undefined" != typeof chrome.storage ? chrome.storage.local : localstorage();
+    exports.colors = [
+      "lightseagreen",
+      "forestgreen",
+      "goldenrod",
+      "dodgerblue",
+      "darkorchid",
+      "crimson"
+    ];
+    function useColors() {
+      if (typeof window !== "undefined" && window.process && window.process.type === "renderer") {
+        return true;
+      }
+      return typeof document !== "undefined" && document.documentElement && document.documentElement.style && document.documentElement.style.WebkitAppearance || // is firebug? http://stackoverflow.com/a/398120/376773
+      typeof window !== "undefined" && window.console && (window.console.firebug || window.console.exception && window.console.table) || // is firefox >= v31?
+      // https://developer.mozilla.org/en-US/docs/Tools/Web_Console#Styling_messages
+      typeof navigator !== "undefined" && navigator.userAgent && navigator.userAgent.toLowerCase().match(/firefox\/(\d+)/) && parseInt(RegExp.$1, 10) >= 31 || // double check webkit in userAgent just in case we are in a worker
+      typeof navigator !== "undefined" && navigator.userAgent && navigator.userAgent.toLowerCase().match(/applewebkit\/(\d+)/);
+    }
+    exports.formatters.j = function(v) {
+      try {
+        return JSON.stringify(v);
+      } catch (err) {
+        return "[UnexpectedJSONParseError]: " + err.message;
+      }
+    };
+    function formatArgs(args) {
+      var useColors2 = this.useColors;
+      args[0] = (useColors2 ? "%c" : "") + this.namespace + (useColors2 ? " %c" : " ") + args[0] + (useColors2 ? "%c " : " ") + "+" + exports.humanize(this.diff);
+      if (!useColors2) return;
+      var c = "color: " + this.color;
+      args.splice(1, 0, c, "color: inherit");
+      var index = 0;
+      var lastC = 0;
+      args[0].replace(/%[a-zA-Z%]/g, function(match) {
+        if ("%%" === match) return;
+        index++;
+        if ("%c" === match) {
+          lastC = index;
+        }
+      });
+      args.splice(lastC, 0, c);
+    }
+    function log() {
+      return "object" === typeof console && console.log && Function.prototype.apply.call(console.log, console, arguments);
+    }
+    function save(namespaces) {
+      try {
+        if (null == namespaces) {
+          exports.storage.removeItem("debug");
+        } else {
+          exports.storage.debug = namespaces;
+        }
+      } catch (e) {
+      }
+    }
+    function load2() {
+      var r;
+      try {
+        r = exports.storage.debug;
+      } catch (e) {
+      }
+      if (!r && typeof process !== "undefined" && "env" in process) {
+        r = process.env.DEBUG;
+      }
+      return r;
+    }
+    exports.enable(load2());
+    function localstorage() {
+      try {
+        return window.localStorage;
+      } catch (e) {
+      }
+    }
+  })(browser$1, browser$1.exports);
+  return browser$1.exports;
+}
+var node$1 = { exports: {} };
+var hasRequiredNode$1;
+function requireNode$1() {
+  if (hasRequiredNode$1) return node$1.exports;
+  hasRequiredNode$1 = 1;
+  (function(module2, exports) {
+    var tty = require$$0$4;
+    var util2 = require$$1;
+    exports = module2.exports = requireDebug();
+    exports.init = init;
+    exports.log = log;
+    exports.formatArgs = formatArgs;
+    exports.save = save;
+    exports.load = load2;
+    exports.useColors = useColors;
+    exports.colors = [6, 2, 3, 4, 5, 1];
+    exports.inspectOpts = Object.keys(process.env).filter(function(key) {
+      return /^debug_/i.test(key);
+    }).reduce(function(obj, key) {
+      var prop = key.substring(6).toLowerCase().replace(/_([a-z])/g, function(_, k) {
+        return k.toUpperCase();
+      });
+      var val = process.env[key];
+      if (/^(yes|on|true|enabled)$/i.test(val)) val = true;
+      else if (/^(no|off|false|disabled)$/i.test(val)) val = false;
+      else if (val === "null") val = null;
+      else val = Number(val);
+      obj[prop] = val;
+      return obj;
+    }, {});
+    var fd = parseInt(process.env.DEBUG_FD, 10) || 2;
+    if (1 !== fd && 2 !== fd) {
+      util2.deprecate(function() {
+      }, "except for stderr(2) and stdout(1), any other usage of DEBUG_FD is deprecated. Override debug.log if you want to use a different log function (https://git.io/debug_fd)")();
+    }
+    var stream2 = 1 === fd ? process.stdout : 2 === fd ? process.stderr : createWritableStdioStream(fd);
+    function useColors() {
+      return "colors" in exports.inspectOpts ? Boolean(exports.inspectOpts.colors) : tty.isatty(fd);
+    }
+    exports.formatters.o = function(v) {
+      this.inspectOpts.colors = this.useColors;
+      return util2.inspect(v, this.inspectOpts).split("\n").map(function(str) {
+        return str.trim();
+      }).join(" ");
+    };
+    exports.formatters.O = function(v) {
+      this.inspectOpts.colors = this.useColors;
+      return util2.inspect(v, this.inspectOpts);
+    };
+    function formatArgs(args) {
+      var name = this.namespace;
+      var useColors2 = this.useColors;
+      if (useColors2) {
+        var c = this.color;
+        var prefix = "  \x1B[3" + c + ";1m" + name + " \x1B[0m";
+        args[0] = prefix + args[0].split("\n").join("\n" + prefix);
+        args.push("\x1B[3" + c + "m+" + exports.humanize(this.diff) + "\x1B[0m");
+      } else {
+        args[0] = (/* @__PURE__ */ new Date()).toUTCString() + " " + name + " " + args[0];
+      }
+    }
+    function log() {
+      return stream2.write(util2.format.apply(util2, arguments) + "\n");
+    }
+    function save(namespaces) {
+      if (null == namespaces) {
+        delete process.env.DEBUG;
+      } else {
+        process.env.DEBUG = namespaces;
+      }
+    }
+    function load2() {
+      return process.env.DEBUG;
+    }
+    function createWritableStdioStream(fd2) {
+      var stream3;
+      var tty_wrap = process.binding("tty_wrap");
+      switch (tty_wrap.guessHandleType(fd2)) {
+        case "TTY":
+          stream3 = new tty.WriteStream(fd2);
+          stream3._type = "tty";
+          if (stream3._handle && stream3._handle.unref) {
+            stream3._handle.unref();
+          }
+          break;
+        case "FILE":
+          var fs$1 = fs;
+          stream3 = new fs$1.SyncWriteStream(fd2, { autoClose: false });
+          stream3._type = "fs";
+          break;
+        case "PIPE":
+        case "TCP":
+          var net = require$$4;
+          stream3 = new net.Socket({
+            fd: fd2,
+            readable: false,
+            writable: true
+          });
+          stream3.readable = false;
+          stream3.read = null;
+          stream3._type = "pipe";
+          if (stream3._handle && stream3._handle.unref) {
+            stream3._handle.unref();
+          }
+          break;
+        default:
+          throw new Error("Implement me. Unknown stream file type!");
+      }
+      stream3.fd = fd2;
+      stream3._isStdio = true;
+      return stream3;
+    }
+    function init(debug2) {
+      debug2.inspectOpts = {};
+      var keys = Object.keys(exports.inspectOpts);
+      for (var i = 0; i < keys.length; i++) {
+        debug2.inspectOpts[keys[i]] = exports.inspectOpts[keys[i]];
+      }
+    }
+    exports.enable(load2());
+  })(node$1, node$1.exports);
+  return node$1.exports;
+}
+var hasRequiredSrc$1;
+function requireSrc$1() {
+  if (hasRequiredSrc$1) return src$1.exports;
+  hasRequiredSrc$1 = 1;
+  if (typeof process !== "undefined" && process.type === "renderer") {
+    src$1.exports = requireBrowser$1();
+  } else {
+    src$1.exports = requireNode$1();
+  }
+  return src$1.exports;
+}
+var electronSquirrelStartup;
+var hasRequiredElectronSquirrelStartup;
+function requireElectronSquirrelStartup() {
+  if (hasRequiredElectronSquirrelStartup) return electronSquirrelStartup;
+  hasRequiredElectronSquirrelStartup = 1;
+  var path$1 = path;
+  var spawn = require$$1$1.spawn;
+  var debug2 = requireSrc$1()("electron-squirrel-startup");
+  var app = require$$3.app;
+  var run = function(args, done) {
+    var updateExe = path$1.resolve(path$1.dirname(process.execPath), "..", "Update.exe");
+    debug2("Spawning `%s` with args `%s`", updateExe, args);
+    spawn(updateExe, args, {
+      detached: true
+    }).on("close", done);
+  };
+  var check = function() {
+    if (process.platform === "win32") {
+      var cmd = process.argv[1];
+      debug2("processing squirrel command `%s`", cmd);
+      var target = path$1.basename(process.execPath);
+      if (cmd === "--squirrel-install" || cmd === "--squirrel-updated") {
+        run(["--createShortcut=" + target], app.quit);
+        return true;
+      }
+      if (cmd === "--squirrel-uninstall") {
+        run(["--removeShortcut=" + target], app.quit);
+        return true;
+      }
+      if (cmd === "--squirrel-obsolete") {
+        app.quit();
+        return true;
+      }
+    }
+    return false;
+  };
+  electronSquirrelStartup = check();
+  return electronSquirrelStartup;
+}
+var electronSquirrelStartupExports = requireElectronSquirrelStartup();
+const squirrelStartup = /* @__PURE__ */ getDefaultExportFromCjs(electronSquirrelStartupExports);
+function crc32(data) {
+  const table = new Int32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
+    table[i] = c;
+  }
+  let crc = -1;
+  for (let i = 0; i < data.length; i++) crc = table[(crc ^ data[i]) & 255] ^ crc >>> 8;
+  return crc ^ -1;
+}
+function pngChunk(type, data) {
+  const typeBytes = Buffer.from(type, "ascii");
+  const len = Buffer.allocUnsafe(4);
+  len.writeUInt32BE(data.length);
+  const crcInput = Buffer.concat([typeBytes, data]);
+  const crcBuf = Buffer.allocUnsafe(4);
+  crcBuf.writeInt32BE(crc32(crcInput));
+  return Buffer.concat([len, typeBytes, data, crcBuf]);
+}
+function makeCircleIcon(size, hexFill) {
+  const r = parseInt(hexFill.slice(1, 3), 16);
+  const g = parseInt(hexFill.slice(3, 5), 16);
+  const b = parseInt(hexFill.slice(5, 7), 16);
+  const cx = size / 2;
+  const cy = size / 2;
+  const outerR = size / 2 - 1;
+  const innerR = outerR * 0.55;
+  const stride = size * 4 + 1;
+  const raw = Buffer.alloc(size * stride, 0);
+  for (let y = 0; y < size; y++) {
+    raw[y * stride] = 0;
+    for (let x = 0; x < size; x++) {
+      const dx = x + 0.5 - cx;
+      const dy = y + 0.5 - cy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const px = y * stride + 1 + x * 4;
+      if (dist <= outerR) {
+        if (dist <= innerR) {
+          const t = 1 - dist / innerR;
+          const bright = Math.round(255 * t * 0.4);
+          raw[px] = Math.min(255, r + bright);
+          raw[px + 1] = Math.min(255, g + bright);
+          raw[px + 2] = Math.min(255, b + bright);
+          raw[px + 3] = 255;
+        } else {
+          raw[px] = r;
+          raw[px + 1] = g;
+          raw[px + 2] = b;
+          raw[px + 3] = 255;
+        }
+      }
+    }
+  }
+  const compressed = zlib.deflateSync(raw, { level: 6 });
+  const ihdrData = Buffer.allocUnsafe(13);
+  ihdrData.writeUInt32BE(size, 0);
+  ihdrData.writeUInt32BE(size, 4);
+  ihdrData[8] = 8;
+  ihdrData[9] = 6;
+  ihdrData[10] = 0;
+  ihdrData[11] = 0;
+  ihdrData[12] = 0;
+  const png = Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    pngChunk("IHDR", ihdrData),
+    pngChunk("IDAT", compressed),
+    pngChunk("IEND", Buffer.alloc(0))
+  ]);
+  return require$$3.nativeImage.createFromBuffer(png);
+}
+const ICON_SIZE = 22;
+const icons = {
+  green: makeCircleIcon(ICON_SIZE, "#52c41a"),
+  yellow: makeCircleIcon(ICON_SIZE, "#faad14"),
+  red: makeCircleIcon(ICON_SIZE, "#ff4d4f"),
+  grey: makeCircleIcon(ICON_SIZE, "#8c8c8c"),
+  black: makeCircleIcon(ICON_SIZE, "#404040")
+};
 var build$1 = {};
 var mqtt$2 = {};
 var client = {};
@@ -1214,7 +1769,7 @@ function requireUtil$1() {
   if (hasRequiredUtil$1) return util$1.exports;
   hasRequiredUtil$1 = 1;
   (function(module2) {
-    const bufferModule = require$$0$4;
+    const bufferModule = require$$0$5;
     const { format, inspect: inspect2 } = requireInspect();
     const {
       codes: { ERR_INVALID_ARG_TYPE }
@@ -1294,7 +1849,7 @@ function requireUtil$1() {
       deprecate(fn, message) {
         return fn;
       },
-      addAbortListener: require$$0$5.addAbortListener || function addAbortListener(signal, listener) {
+      addAbortListener: require$$0$6.addAbortListener || function addAbortListener(signal, listener) {
         if (signal === void 0) {
           throw new ERR_INVALID_ARG_TYPE("signal", "AbortSignal", signal);
         }
@@ -2354,7 +2909,7 @@ function requireLegacy() {
   if (hasRequiredLegacy) return legacy;
   hasRequiredLegacy = 1;
   const { ArrayIsArray, ObjectSetPrototypeOf } = requirePrimordials();
-  const { EventEmitter: EE } = require$$0$5;
+  const { EventEmitter: EE } = require$$0$6;
   function Stream(opts) {
     EE.call(this, opts);
   }
@@ -2485,7 +3040,7 @@ function requireBuffer_list() {
   if (hasRequiredBuffer_list) return buffer_list;
   hasRequiredBuffer_list = 1;
   const { StringPrototypeSlice, SymbolIterator, TypedArrayPrototypeSet, Uint8Array: Uint8Array2 } = requirePrimordials();
-  const { Buffer: Buffer2 } = require$$0$4;
+  const { Buffer: Buffer2 } = require$$0$5;
   const { inspect: inspect2 } = requireUtil$1();
   buffer_list = class BufferList {
     constructor() {
@@ -2684,7 +3239,7 @@ function requireSafeBuffer() {
   if (hasRequiredSafeBuffer) return safeBuffer.exports;
   hasRequiredSafeBuffer = 1;
   (function(module2, exports) {
-    var buffer = require$$0$4;
+    var buffer = require$$0$5;
     var Buffer2 = buffer.Buffer;
     function copyProps(src2, dst) {
       for (var key in src2) {
@@ -2983,7 +3538,7 @@ function requireFrom() {
   hasRequiredFrom = 1;
   const process2 = requireProcess();
   const { PromisePrototypeThen, SymbolAsyncIterator, SymbolIterator } = requirePrimordials();
-  const { Buffer: Buffer2 } = require$$0$4;
+  const { Buffer: Buffer2 } = require$$0$5;
   const { ERR_INVALID_ARG_TYPE, ERR_STREAM_NULL_VALUES } = requireErrors().codes;
   function from(Readable, iterable, opts) {
     let iterator;
@@ -3093,9 +3648,9 @@ function requireReadable() {
   } = requirePrimordials();
   readable = Readable;
   Readable.ReadableState = ReadableState;
-  const { EventEmitter: EE } = require$$0$5;
+  const { EventEmitter: EE } = require$$0$6;
   const { Stream, prependListener } = requireLegacy();
-  const { Buffer: Buffer2 } = require$$0$4;
+  const { Buffer: Buffer2 } = require$$0$5;
   const { addAbortSignal: addAbortSignal2 } = requireAddAbortSignal();
   const eos = requireEndOfStream();
   let debug2 = requireUtil$1().debuglog("stream", (fn) => {
@@ -4056,9 +4611,9 @@ function requireWritable() {
   } = requirePrimordials();
   writable = Writable;
   Writable.WritableState = WritableState;
-  const { EventEmitter: EE } = require$$0$5;
+  const { EventEmitter: EE } = require$$0$6;
   const Stream = requireLegacy().Stream;
-  const { Buffer: Buffer2 } = require$$0$4;
+  const { Buffer: Buffer2 } = require$$0$5;
   const destroyImpl = requireDestroy();
   const { addAbortSignal: addAbortSignal2 } = requireAddAbortSignal();
   const { getHighWaterMark, getDefaultHighWaterMark } = requireState();
@@ -4664,7 +5219,7 @@ function requireDuplexify() {
   if (hasRequiredDuplexify) return duplexify;
   hasRequiredDuplexify = 1;
   const process2 = requireProcess();
-  const bufferModule = require$$0$4;
+  const bufferModule = require$$0$5;
   const {
     isReadable,
     isWritable,
@@ -6313,7 +6868,7 @@ var hasRequiredStream$1;
 function requireStream$1() {
   if (hasRequiredStream$1) return stream$1.exports;
   hasRequiredStream$1 = 1;
-  const { Buffer: Buffer2 } = require$$0$4;
+  const { Buffer: Buffer2 } = require$$0$5;
   const { ObjectDefineProperty, ObjectKeys, ReflectApply } = requirePrimordials();
   const {
     promisify: { custom: customPromisify }
@@ -6433,7 +6988,7 @@ function requireOurs() {
   if (hasRequiredOurs) return ours.exports;
   hasRequiredOurs = 1;
   (function(module2) {
-    const Stream = require$$0$6;
+    const Stream = require$$0$7;
     if (Stream && process.env.READABLE_STREAM === "disable") {
       const promises2 = Stream.promises;
       module2.exports._uint8ArrayToBuffer = Stream._uint8ArrayToBuffer;
@@ -6545,7 +7100,7 @@ var hasRequiredBufferList;
 function requireBufferList() {
   if (hasRequiredBufferList) return BufferList_1;
   hasRequiredBufferList = 1;
-  const { Buffer: Buffer2 } = require$$0$4;
+  const { Buffer: Buffer2 } = require$$0$5;
   const symbol = Symbol.for("BufferList");
   function BufferList(buf) {
     if (!(this instanceof BufferList)) {
@@ -6957,7 +7512,7 @@ function requireConstants$4() {
   hasRequiredConstants$4 = 1;
   (function(module2) {
     const protocol = module2.exports;
-    const { Buffer: Buffer2 } = require$$0$4;
+    const { Buffer: Buffer2 } = require$$0$5;
     protocol.types = {
       0: "reserved",
       1: "connect",
@@ -7226,20 +7781,20 @@ function requireConstants$4() {
   })(constants$4);
   return constants$4.exports;
 }
-var src$1 = { exports: {} };
-var browser$1 = { exports: {} };
-var ms$1;
-var hasRequiredMs$1;
-function requireMs$1() {
-  if (hasRequiredMs$1) return ms$1;
-  hasRequiredMs$1 = 1;
+var src = { exports: {} };
+var browser = { exports: {} };
+var ms;
+var hasRequiredMs;
+function requireMs() {
+  if (hasRequiredMs) return ms;
+  hasRequiredMs = 1;
   var s = 1e3;
   var m = s * 60;
   var h = m * 60;
   var d = h * 24;
   var w = d * 7;
   var y = d * 365.25;
-  ms$1 = function(val, options) {
+  ms = function(val, options) {
     options = options || {};
     var type = typeof val;
     if (type === "string" && val.length > 0) {
@@ -7343,7 +7898,7 @@ function requireMs$1() {
     var isPlural = msAbs >= n * 1.5;
     return Math.round(ms2 / n) + " " + name + (isPlural ? "s" : "");
   }
-  return ms$1;
+  return ms;
 }
 var common$1;
 var hasRequiredCommon$1;
@@ -7357,7 +7912,7 @@ function requireCommon$1() {
     createDebug.disable = disable;
     createDebug.enable = enable;
     createDebug.enabled = enabled;
-    createDebug.humanize = requireMs$1();
+    createDebug.humanize = requireMs();
     createDebug.destroy = destroy;
     Object.keys(env).forEach((key) => {
       createDebug[key] = env[key];
@@ -7523,10 +8078,10 @@ function requireCommon$1() {
   common$1 = setup;
   return common$1;
 }
-var hasRequiredBrowser$1;
-function requireBrowser$1() {
-  if (hasRequiredBrowser$1) return browser$1.exports;
-  hasRequiredBrowser$1 = 1;
+var hasRequiredBrowser;
+function requireBrowser() {
+  if (hasRequiredBrowser) return browser.exports;
+  hasRequiredBrowser = 1;
   (function(module2, exports) {
     exports.formatArgs = formatArgs;
     exports.save = save;
@@ -7692,10 +8247,10 @@ function requireBrowser$1() {
         return "[UnexpectedJSONParseError]: " + error.message;
       }
     };
-  })(browser$1, browser$1.exports);
-  return browser$1.exports;
+  })(browser, browser.exports);
+  return browser.exports;
 }
-var node$1 = { exports: {} };
+var node = { exports: {} };
 var hasFlag;
 var hasRequiredHasFlag;
 function requireHasFlag() {
@@ -7715,7 +8270,7 @@ function requireSupportsColor() {
   if (hasRequiredSupportsColor) return supportsColor_1;
   hasRequiredSupportsColor = 1;
   const os = require$$0$8;
-  const tty = require$$0$7;
+  const tty = require$$0$4;
   const hasFlag2 = requireHasFlag();
   const { env } = process;
   let forceColor;
@@ -7811,12 +8366,12 @@ function requireSupportsColor() {
   };
   return supportsColor_1;
 }
-var hasRequiredNode$1;
-function requireNode$1() {
-  if (hasRequiredNode$1) return node$1.exports;
-  hasRequiredNode$1 = 1;
+var hasRequiredNode;
+function requireNode() {
+  if (hasRequiredNode) return node.exports;
+  hasRequiredNode = 1;
   (function(module2, exports) {
-    const tty = require$$0$7;
+    const tty = require$$0$4;
     const util2 = require$$1;
     exports.init = init;
     exports.log = log;
@@ -7984,19 +8539,19 @@ function requireNode$1() {
       this.inspectOpts.colors = this.useColors;
       return util2.inspect(v, this.inspectOpts);
     };
-  })(node$1, node$1.exports);
-  return node$1.exports;
+  })(node, node.exports);
+  return node.exports;
 }
-var hasRequiredSrc$1;
-function requireSrc$1() {
-  if (hasRequiredSrc$1) return src$1.exports;
-  hasRequiredSrc$1 = 1;
+var hasRequiredSrc;
+function requireSrc() {
+  if (hasRequiredSrc) return src.exports;
+  hasRequiredSrc = 1;
   if (typeof process === "undefined" || process.type === "renderer" || process.browser === true || process.__nwjs) {
-    src$1.exports = requireBrowser$1();
+    src.exports = requireBrowser();
   } else {
-    src$1.exports = requireNode$1();
+    src.exports = requireNode();
   }
-  return src$1.exports;
+  return src.exports;
 }
 var parser;
 var hasRequiredParser;
@@ -8004,10 +8559,10 @@ function requireParser() {
   if (hasRequiredParser) return parser;
   hasRequiredParser = 1;
   const bl2 = requireBl();
-  const { EventEmitter } = require$$0$5;
+  const { EventEmitter } = require$$0$6;
   const Packet = requirePacket();
   const constants2 = requireConstants$4();
-  const debug2 = requireSrc$1()("mqtt-packet:parser");
+  const debug2 = requireSrc()("mqtt-packet:parser");
   class Parser extends EventEmitter {
     constructor() {
       super();
@@ -8675,7 +9230,7 @@ var hasRequiredNumbers;
 function requireNumbers() {
   if (hasRequiredNumbers) return numbers;
   hasRequiredNumbers = 1;
-  const { Buffer: Buffer2 } = require$$0$4;
+  const { Buffer: Buffer2 } = require$$0$5;
   const max = 65536;
   const cache2 = {};
   const SubOk = Buffer2.isBuffer(Buffer2.from([1, 2]).subarray(0, 1));
@@ -8771,12 +9326,12 @@ function requireWriteToStream() {
   if (hasRequiredWriteToStream) return writeToStream;
   hasRequiredWriteToStream = 1;
   const protocol = requireConstants$4();
-  const { Buffer: Buffer2 } = require$$0$4;
+  const { Buffer: Buffer2 } = require$$0$5;
   const empty = Buffer2.allocUnsafe(0);
   const zeroBuf = Buffer2.from([0]);
   const numbers2 = requireNumbers();
   const nextTick = requireProcessNextickArgs().nextTick;
-  const debug2 = requireSrc$1()("mqtt-packet:writeToStream");
+  const debug2 = requireSrc()("mqtt-packet:writeToStream");
   const numCache = numbers2.cache;
   const generateNumber = numbers2.generateNumber;
   const generateCache = numbers2.generateCache;
@@ -9639,8 +10194,8 @@ function requireGenerate() {
   if (hasRequiredGenerate) return generate_1;
   hasRequiredGenerate = 1;
   const writeToStream2 = requireWriteToStream();
-  const { EventEmitter } = require$$0$5;
-  const { Buffer: Buffer2 } = require$$0$4;
+  const { EventEmitter } = require$$0$6;
+  const { Buffer: Buffer2 } = require$$0$5;
   function generate(packet2, opts) {
     const stream2 = new Accumulator();
     writeToStream2(packet2, stream2, opts);
@@ -15366,8 +15921,8 @@ function requireNumberAllocator$1() {
   if (hasRequiredNumberAllocator$1) return numberAllocator;
   hasRequiredNumberAllocator$1 = 1;
   const SortedSet = require$$0$1.OrderedSet;
-  const debugTrace = requireSrc$1()("number-allocator:trace");
-  const debugError = requireSrc$1()("number-allocator:error");
+  const debugTrace = requireSrc()("number-allocator:trace");
+  const debugError = requireSrc()("number-allocator:error");
   function Interval(low, high) {
     this.low = low;
     this.high = high;
@@ -15810,7 +16365,7 @@ function requireTypedEmitter() {
   };
   Object.defineProperty(TypedEmitter, "__esModule", { value: true });
   TypedEmitter.TypedEventEmitter = void 0;
-  const events_1 = __importDefault(require$$0$5);
+  const events_1 = __importDefault(require$$0$6);
   const shared_1 = requireShared();
   class TypedEventEmitter {
   }
@@ -16246,7 +16801,7 @@ function requireClient() {
   const mqtt_packet_1 = __importDefault(requireMqtt$1());
   const readable_stream_1 = requireOurs();
   const default_1 = __importDefault(require_default());
-  const debug_1 = __importDefault(requireSrc$1());
+  const debug_1 = __importDefault(requireSrc());
   const validations2 = __importStar(requireValidations());
   const store_1 = __importDefault(requireStore());
   const handlers_1 = __importDefault(requireHandlers());
@@ -17605,7 +18160,7 @@ var hasRequiredPermessageDeflate;
 function requirePermessageDeflate() {
   if (hasRequiredPermessageDeflate) return permessageDeflate;
   hasRequiredPermessageDeflate = 1;
-  const zlib = require$$0$9;
+  const zlib$1 = zlib;
   const bufferUtil2 = requireBufferUtil();
   const Limiter = requireLimiter();
   const { kStatusCode } = requireConstants$3();
@@ -17872,8 +18427,8 @@ function requirePermessageDeflate() {
       const endpoint = this._isServer ? "client" : "server";
       if (!this._inflate) {
         const key = `${endpoint}_max_window_bits`;
-        const windowBits = typeof this.params[key] !== "number" ? zlib.Z_DEFAULT_WINDOWBITS : this.params[key];
-        this._inflate = zlib.createInflateRaw({
+        const windowBits = typeof this.params[key] !== "number" ? zlib$1.Z_DEFAULT_WINDOWBITS : this.params[key];
+        this._inflate = zlib$1.createInflateRaw({
           ...this._options.zlibInflateOptions,
           windowBits
         });
@@ -17923,8 +18478,8 @@ function requirePermessageDeflate() {
       const endpoint = this._isServer ? "server" : "client";
       if (!this._deflate) {
         const key = `${endpoint}_max_window_bits`;
-        const windowBits = typeof this.params[key] !== "number" ? zlib.Z_DEFAULT_WINDOWBITS : this.params[key];
-        this._deflate = zlib.createDeflateRaw({
+        const windowBits = typeof this.params[key] !== "number" ? zlib$1.Z_DEFAULT_WINDOWBITS : this.params[key];
+        this._deflate = zlib$1.createDeflateRaw({
           ...this._options.zlibDeflateOptions,
           windowBits
         });
@@ -17934,7 +18489,7 @@ function requirePermessageDeflate() {
       }
       this._deflate[kCallback] = callback;
       this._deflate.write(data);
-      this._deflate.flush(zlib.Z_SYNC_FLUSH, () => {
+      this._deflate.flush(zlib$1.Z_SYNC_FLUSH, () => {
         if (!this._deflate) {
           return;
         }
@@ -17988,7 +18543,7 @@ var hasRequiredValidation;
 function requireValidation() {
   if (hasRequiredValidation) return validation.exports;
   hasRequiredValidation = 1;
-  const { isUtf8 } = require$$0$4;
+  const { isUtf8 } = require$$0$5;
   const { hasBlob } = requireConstants$3();
   const tokenChars = [
     0,
@@ -18189,7 +18744,7 @@ var hasRequiredReceiver;
 function requireReceiver() {
   if (hasRequiredReceiver) return receiver;
   hasRequiredReceiver = 1;
-  const { Writable } = require$$0$6;
+  const { Writable } = require$$0$7;
   const PerMessageDeflate = requirePermessageDeflate();
   const {
     BINARY_TYPES,
@@ -18821,8 +19376,8 @@ var hasRequiredSender;
 function requireSender() {
   if (hasRequiredSender) return sender;
   hasRequiredSender = 1;
-  const { Duplex } = require$$0$6;
-  const { randomFillSync } = require$$1$1;
+  const { Duplex } = require$$0$7;
+  const { randomFillSync } = require$$1$2;
   const {
     types: { isUint8Array }
   } = require$$1;
@@ -19696,13 +20251,13 @@ var hasRequiredWebsocket;
 function requireWebsocket() {
   if (hasRequiredWebsocket) return websocket;
   hasRequiredWebsocket = 1;
-  const EventEmitter = require$$0$5;
-  const https = require$$1$2;
+  const EventEmitter = require$$0$6;
+  const https = require$$1$3;
   const http = require$$2;
-  const net = require$$1$3;
-  const tls2 = require$$4;
-  const { randomBytes, createHash } = require$$1$1;
-  const { Duplex, Readable } = require$$0$6;
+  const net = require$$4;
+  const tls2 = require$$4$1;
+  const { randomBytes, createHash } = require$$1$2;
+  const { Duplex, Readable } = require$$0$7;
   const { URL: URL2 } = require$$7;
   const PerMessageDeflate = requirePermessageDeflate();
   const Receiver = requireReceiver();
@@ -20593,7 +21148,7 @@ function requireStream() {
   if (hasRequiredStream) return stream;
   hasRequiredStream = 1;
   requireWebsocket();
-  const { Duplex } = require$$0$6;
+  const { Duplex } = require$$0$7;
   function emitClose(stream2) {
     stream2.emit("close");
   }
@@ -20735,10 +21290,10 @@ var hasRequiredWebsocketServer;
 function requireWebsocketServer() {
   if (hasRequiredWebsocketServer) return websocketServer;
   hasRequiredWebsocketServer = 1;
-  const EventEmitter = require$$0$5;
+  const EventEmitter = require$$0$6;
   const http = require$$2;
-  const { Duplex } = require$$0$6;
-  const { createHash } = require$$1$1;
+  const { Duplex } = require$$0$7;
+  const { createHash } = require$$1$2;
   const extension2 = requireExtension();
   const PerMessageDeflate = requirePermessageDeflate();
   const subprotocol2 = requireSubprotocol();
@@ -21165,7 +21720,7 @@ function requireBufferedDuplex() {
   BufferedDuplex.BufferedDuplex = void 0;
   BufferedDuplex.writev = writev;
   const readable_stream_1 = requireOurs();
-  const buffer_1 = require$$0$4;
+  const buffer_1 = require$$0$5;
   function writev(chunks, cb) {
     const buffers = new Array(chunks.length);
     for (let i = 0; i < chunks.length; i++) {
@@ -21249,9 +21804,9 @@ function requireWs() {
   };
   Object.defineProperty(ws$1, "__esModule", { value: true });
   ws$1.streamBuilder = ws$1.browserStreamBuilder = void 0;
-  const buffer_1 = require$$0$4;
+  const buffer_1 = require$$0$5;
   const ws_1 = __importDefault(requireWs$1());
-  const debug_1 = __importDefault(requireSrc$1());
+  const debug_1 = __importDefault(requireSrc());
   const readable_stream_1 = requireOurs();
   const is_browser_1 = __importDefault(requireIsBrowser());
   const BufferedDuplex_1 = requireBufferedDuplex();
@@ -21463,7 +22018,7 @@ function requireUtils() {
   if (hasRequiredUtils) return utils;
   hasRequiredUtils = 1;
   Object.defineProperty(utils, "__esModule", { value: true });
-  const buffer_1 = require$$0$4;
+  const buffer_1 = require$$0$5;
   const ERRORS = {
     INVALID_ENCODING: "Invalid encoding provided. Please specify a valid encoding the internal Node.js Buffer supports.",
     INVALID_SMARTBUFFER_SIZE: "Invalid size provided. Size must be a valid integer greater than zero.",
@@ -24752,9 +25307,9 @@ function requireHelpers() {
   helpers$1.ipToBuffer = helpers$1.int32ToIpv4 = helpers$1.ipv4ToInt32 = helpers$1.validateSocksClientChainOptions = helpers$1.validateSocksClientOptions = void 0;
   const util_1 = requireUtil();
   const constants_1 = requireConstants$2();
-  const stream2 = require$$0$6;
+  const stream2 = require$$0$7;
   const ip_address_1 = /* @__PURE__ */ requireIpAddress();
-  const net = require$$1$3;
+  const net = require$$4;
   function validateSocksClientOptions(options, acceptedCommands = ["connect", "bind", "associate"]) {
     if (!constants_1.SocksCommand[options.command]) {
       throw new util_1.SocksClientError(constants_1.ERRORS.InvalidSocksCommand, options);
@@ -24932,8 +25487,8 @@ function requireSocksclient() {
     };
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.SocksClientError = exports.SocksClient = void 0;
-    const events_1 = require$$0$5;
-    const net = require$$1$3;
+    const events_1 = require$$0$6;
+    const net = require$$4;
     const smart_buffer_1 = requireSmartbuffer();
     const constants_1 = requireConstants$2();
     const helpers_1 = requireHelpers();
@@ -25650,10 +26205,10 @@ function requireSocks() {
   };
   Object.defineProperty(socks, "__esModule", { value: true });
   socks.default = openSocks;
-  const debug_1 = __importDefault(requireSrc$1());
-  const stream_1 = require$$0$6;
+  const debug_1 = __importDefault(requireSrc());
+  const stream_1 = require$$0$7;
   const socks_1 = requireBuild$1();
-  const dns = __importStar(require$$3);
+  const dns = __importStar(require$$3$1);
   const util_1 = require$$1;
   const assert_1 = __importDefault(require$$5);
   const debug2 = (0, debug_1.default)("mqttjs:socks");
@@ -25802,8 +26357,8 @@ function requireTcp() {
     return mod && mod.__esModule ? mod : { "default": mod };
   };
   Object.defineProperty(tcp, "__esModule", { value: true });
-  const net_1 = __importDefault(require$$1$3);
-  const debug_1 = __importDefault(requireSrc$1());
+  const net_1 = __importDefault(require$$4);
+  const debug_1 = __importDefault(requireSrc());
   const socks_1 = __importDefault(requireSocks());
   const debug2 = (0, debug_1.default)("mqttjs:tcp");
   const buildStream = (client2, opts) => {
@@ -25831,9 +26386,9 @@ function requireTls() {
     return mod && mod.__esModule ? mod : { "default": mod };
   };
   Object.defineProperty(tls, "__esModule", { value: true });
-  const tls_1 = require$$4;
-  const net_1 = __importDefault(require$$1$3);
-  const debug_1 = __importDefault(requireSrc$1());
+  const tls_1 = require$$4$1;
+  const net_1 = __importDefault(require$$4);
+  const debug_1 = __importDefault(requireSrc());
   const socks_1 = __importDefault(requireSocks());
   const debug2 = (0, debug_1.default)("mqttjs:tls");
   function connect2(opts) {
@@ -25884,7 +26439,7 @@ function requireWx() {
   if (hasRequiredWx) return wx$1;
   hasRequiredWx = 1;
   Object.defineProperty(wx$1, "__esModule", { value: true });
-  const buffer_1 = require$$0$4;
+  const buffer_1 = require$$0$5;
   const readable_stream_1 = requireOurs();
   const BufferedDuplex_1 = requireBufferedDuplex();
   let socketTask;
@@ -26002,7 +26557,7 @@ function requireAli() {
   if (hasRequiredAli) return ali;
   hasRequiredAli = 1;
   Object.defineProperty(ali, "__esModule", { value: true });
-  const buffer_1 = require$$0$4;
+  const buffer_1 = require$$0$5;
   const readable_stream_1 = requireOurs();
   const BufferedDuplex_1 = requireBufferedDuplex();
   let my;
@@ -26114,7 +26669,7 @@ function requireConnect() {
   };
   Object.defineProperty(connect, "__esModule", { value: true });
   connect.connectAsync = connectAsync;
-  const debug_1 = __importDefault(requireSrc$1());
+  const debug_1 = __importDefault(requireSrc());
   const url_1 = __importDefault(require$$7);
   const client_1 = __importDefault(requireClient());
   const is_browser_1 = __importDefault(requireIsBrowser());
@@ -26428,575 +26983,295 @@ function requireBuild() {
 }
 var buildExports = requireBuild();
 const mqtt = /* @__PURE__ */ getDefaultExportFromCjs(buildExports);
-var src = { exports: {} };
-var browser = { exports: {} };
-var debug = { exports: {} };
-var ms;
-var hasRequiredMs;
-function requireMs() {
-  if (hasRequiredMs) return ms;
-  hasRequiredMs = 1;
-  var s = 1e3;
-  var m = s * 60;
-  var h = m * 60;
-  var d = h * 24;
-  var y = d * 365.25;
-  ms = function(val, options) {
-    options = options || {};
-    var type = typeof val;
-    if (type === "string" && val.length > 0) {
-      return parse(val);
-    } else if (type === "number" && isNaN(val) === false) {
-      return options.long ? fmtLong(val) : fmtShort(val);
+function computeConnectionStatus(item, now) {
+  const { payload } = item;
+  const refreshMs = ((payload == null ? void 0 : payload.refreshMinutes) || 5) * 6e4;
+  const type = payload == null ? void 0 : payload.type;
+  if (type === "icmp" || type === "tcp" || type === "dated_file_exists" || type === "file_mtime" || type === "db_currency") {
+    if (payload.checkedAt) {
+      const staleness = now - new Date(payload.checkedAt).getTime();
+      if (staleness > 5 * refreshMs) return "red";
+      if (staleness > 3 * refreshMs) return "yellow";
     }
-    throw new Error(
-      "val is not a non-empty string or a valid number. val=" + JSON.stringify(val)
-    );
-  };
-  function parse(str) {
-    str = String(str);
-    if (str.length > 100) {
-      return;
+    if (type === "icmp" || type === "tcp") return payload.available ? "green" : "red";
+    if (type === "dated_file_exists") {
+      if (payload.error) return "red";
+      return payload.exists ? "green" : "red";
     }
-    var match = /^((?:\d+)?\.?\d+) *(milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|years?|yrs?|y)?$/i.exec(
-      str
-    );
-    if (!match) {
-      return;
-    }
-    var n = parseFloat(match[1]);
-    var type = (match[2] || "ms").toLowerCase();
-    switch (type) {
-      case "years":
-      case "year":
-      case "yrs":
-      case "yr":
-      case "y":
-        return n * y;
-      case "days":
-      case "day":
-      case "d":
-        return n * d;
-      case "hours":
-      case "hour":
-      case "hrs":
-      case "hr":
-      case "h":
-        return n * h;
-      case "minutes":
-      case "minute":
-      case "mins":
-      case "min":
-      case "m":
-        return n * m;
-      case "seconds":
-      case "second":
-      case "secs":
-      case "sec":
-      case "s":
-        return n * s;
-      case "milliseconds":
-      case "millisecond":
-      case "msecs":
-      case "msec":
-      case "ms":
-        return n;
-      default:
-        return void 0;
-    }
+    if (payload.error) return "red";
+    if (payload.ageSeconds == null) return "red";
+    const ageMs = payload.ageSeconds * 1e3;
+    if (ageMs < 3 * refreshMs) return "green";
+    if (ageMs < 5 * refreshMs) return "yellow";
+    return "red";
   }
-  function fmtShort(ms2) {
-    if (ms2 >= d) {
-      return Math.round(ms2 / d) + "d";
-    }
-    if (ms2 >= h) {
-      return Math.round(ms2 / h) + "h";
-    }
-    if (ms2 >= m) {
-      return Math.round(ms2 / m) + "m";
-    }
-    if (ms2 >= s) {
-      return Math.round(ms2 / s) + "s";
-    }
-    return ms2 + "ms";
-  }
-  function fmtLong(ms2) {
-    return plural(ms2, d, "day") || plural(ms2, h, "hour") || plural(ms2, m, "minute") || plural(ms2, s, "second") || ms2 + " ms";
-  }
-  function plural(ms2, n, name) {
-    if (ms2 < n) {
-      return;
-    }
-    if (ms2 < n * 1.5) {
-      return Math.floor(ms2 / n) + " " + name;
-    }
-    return Math.ceil(ms2 / n) + " " + name + "s";
-  }
-  return ms;
+  const lr = item.lastReceivedTracked || (payload == null ? void 0 : payload.lastReceived);
+  if (!lr) return "red";
+  const age = now - new Date(lr).getTime();
+  if (age < 3 * refreshMs) return "green";
+  if (age < 5 * refreshMs) return "yellow";
+  return "red";
 }
-var hasRequiredDebug;
-function requireDebug() {
-  if (hasRequiredDebug) return debug.exports;
-  hasRequiredDebug = 1;
-  (function(module2, exports) {
-    exports = module2.exports = createDebug.debug = createDebug["default"] = createDebug;
-    exports.coerce = coerce;
-    exports.disable = disable;
-    exports.enable = enable;
-    exports.enabled = enabled;
-    exports.humanize = requireMs();
-    exports.names = [];
-    exports.skips = [];
-    exports.formatters = {};
-    var prevTime;
-    function selectColor(namespace) {
-      var hash = 0, i;
-      for (i in namespace) {
-        hash = (hash << 5) - hash + namespace.charCodeAt(i);
-        hash |= 0;
-      }
-      return exports.colors[Math.abs(hash) % exports.colors.length];
+function subjectAggregateStatus(downCount, total) {
+  if (downCount === 0) return "green";
+  return downCount / total > 0.5 ? "red" : "orange";
+}
+const CONNECTIONS_WILDCARD = "connections/#";
+function topicsForSource(source) {
+  const base = `${source.projectId}/${source.systemId}`;
+  if (source.type === "process_status") return [`${base}/status`];
+  if (source.type === "connection_status") return [`${base}/checks/+`];
+  return [`${base}/status`, `${base}/checks/+`];
+}
+function messageTypeForTopic(topic, source) {
+  const base = `${source.projectId}/${source.systemId}`;
+  if (source.type === "process_status" && topic === `${base}/status`) return "process_status";
+  if (source.type === "connection_status" && topic.startsWith(`${base}/checks/`)) return "connection_status";
+  if (topic === `${base}/status`) return "process_status";
+  if (topic.startsWith(`${base}/checks/`)) return "connection_status";
+  return null;
+}
+function findSourceForTopic(sources, topic) {
+  for (const source of sources) {
+    const type = messageTypeForTopic(topic, source);
+    if (type) return { source, type };
+  }
+  return null;
+}
+function buildConnectionUrl(settings2) {
+  const protocol = settings2.mqttProtocol || "mqtt";
+  if (protocol === "ws" || protocol === "wss") {
+    const path2 = (settings2.mqttWsPath || "/").trim();
+    const normalizedPath = path2.startsWith("/") ? path2 : `/${path2}`;
+    return `${protocol}://${settings2.mqttHost}:${settings2.mqttWsPort}${normalizedPath}`;
+  }
+  return `${protocol}://${settings2.mqttHost}:${settings2.mqttPort}`;
+}
+const STALENESS_CHECK_MS = 6e4;
+function createMqttRuntime(initialSettings, initialRemovedTopics, handlers2 = {}) {
+  let settings2 = initialSettings;
+  let mqttClient = null;
+  let connectionState = "grey";
+  let stalenessInterval = null;
+  const items = /* @__PURE__ */ new Map();
+  const removedTopics = new Map((initialRemovedTopics || []).map((r) => [r.topicKey, r]));
+  function emitItems() {
+    var _a;
+    (_a = handlers2.onItems) == null ? void 0 : _a.call(handlers2, Object.fromEntries(items));
+  }
+  function emitRemovedTopics() {
+    var _a;
+    (_a = handlers2.onRemovedTopics) == null ? void 0 : _a.call(handlers2, [...removedTopics.values()]);
+  }
+  function setConnectionState(state2) {
+    var _a;
+    if (connectionState === state2) return;
+    connectionState = state2;
+    (_a = handlers2.onConnectionState) == null ? void 0 : _a.call(handlers2, state2);
+  }
+  function connect2(newSettings) {
+    settings2 = newSettings;
+    if (mqttClient) {
+      mqttClient.end(true);
+      mqttClient = null;
     }
-    function createDebug(namespace) {
-      function debug2() {
-        if (!debug2.enabled) return;
-        var self2 = debug2;
-        var curr = +/* @__PURE__ */ new Date();
-        var ms2 = curr - (prevTime || curr);
-        self2.diff = ms2;
-        self2.prev = prevTime;
-        self2.curr = curr;
-        prevTime = curr;
-        var args = new Array(arguments.length);
-        for (var i = 0; i < args.length; i++) {
-          args[i] = arguments[i];
+    items.clear();
+    emitItems();
+    setConnectionState("grey");
+    const url = buildConnectionUrl(settings2);
+    const opts = { clean: true, reconnectPeriod: 15e3 };
+    if (settings2.mqttUsername) {
+      opts.username = settings2.mqttUsername;
+      opts.password = settings2.mqttPassword || "";
+    }
+    console.log(`[MQTT] Connecting to ${url}`);
+    mqttClient = mqtt.connect(url, opts);
+    mqttClient.on("connect", () => {
+      console.log("[MQTT] Connected — subscribing to all source topics");
+      for (const source of settings2.sources || []) {
+        for (const topic of topicsForSource(source)) {
+          mqttClient.subscribe(topic, { qos: 1 });
+          console.log(`[MQTT] Subscribed: ${topic}`);
         }
-        args[0] = exports.coerce(args[0]);
-        if ("string" !== typeof args[0]) {
-          args.unshift("%O");
-        }
-        var index = 0;
-        args[0] = args[0].replace(/%([a-zA-Z%])/g, function(match, format) {
-          if (match === "%%") return match;
-          index++;
-          var formatter = exports.formatters[format];
-          if ("function" === typeof formatter) {
-            var val = args[index];
-            match = formatter.call(self2, val);
-            args.splice(index, 1);
-            index--;
-          }
-          return match;
+      }
+      mqttClient.subscribe(CONNECTIONS_WILDCARD, { qos: 1 });
+      console.log(`[MQTT] Subscribed: ${CONNECTIONS_WILDCARD}`);
+    });
+    mqttClient.on("message", (topic, message) => {
+      var _a;
+      if (removedTopics.has(topic)) return;
+      if (message.length === 0) {
+        if (items.delete(topic)) emitItems();
+        return;
+      }
+      let payload;
+      try {
+        payload = JSON.parse(message.toString());
+      } catch {
+        return;
+      }
+      let type, sourceLabel;
+      if (topic.startsWith("connections/")) {
+        if (!payload.subjectId) return;
+        type = "connections_status";
+        sourceLabel = payload.subjectLabel || payload.subjectId;
+      } else {
+        const match = findSourceForTopic(settings2.sources || [], topic);
+        if (!match) return;
+        type = match.type;
+        sourceLabel = match.source.label || match.source.id;
+      }
+      const existing = items.get(topic);
+      let computedStatus;
+      let lastReceivedTracked = (existing == null ? void 0 : existing.lastReceivedTracked) ?? null;
+      if (type === "connection_status" || type === "connections_status") {
+        if (payload.lastReceived) lastReceivedTracked = payload.lastReceived;
+        computedStatus = computeConnectionStatus({ payload, lastReceivedTracked }, Date.now());
+      } else {
+        computedStatus = payload.status || "grey";
+      }
+      items.set(topic, {
+        topicKey: topic,
+        messageType: type,
+        sourceLabel,
+        payload,
+        computedStatus,
+        lastReceivedTracked,
+        lastUpdated: (/* @__PURE__ */ new Date()).toISOString()
+      });
+      setConnectionState("live");
+      emitItems();
+      if (type === "process_status" && existing && existing.computedStatus !== computedStatus && connectionState === "live") {
+        (_a = handlers2.onProcessStatusChange) == null ? void 0 : _a.call(handlers2, sourceLabel, computedStatus, payload);
+      }
+    });
+    mqttClient.on("error", (err) => {
+      console.error("[MQTT] Error:", err.message);
+      setConnectionState("black");
+    });
+    mqttClient.on("close", () => {
+      if (connectionState === "live") setConnectionState("grey");
+    });
+  }
+  function recheckStaleness() {
+    if (connectionState !== "live") return;
+    let changed = false;
+    const now = Date.now();
+    for (const [key, item] of items) {
+      if (item.messageType !== "connection_status" && item.messageType !== "connections_status") continue;
+      const newStatus = computeConnectionStatus(item, now);
+      if (newStatus !== item.computedStatus) {
+        items.set(key, { ...item, computedStatus: newStatus });
+        changed = true;
+      }
+    }
+    if (changed) emitItems();
+  }
+  function removeTopicInternal(topicKey) {
+    var _a, _b;
+    const item = items.get(topicKey);
+    items.delete(topicKey);
+    removedTopics.set(topicKey, {
+      topicKey,
+      sourceLabel: (item == null ? void 0 : item.sourceLabel) || "",
+      label: ((_a = item == null ? void 0 : item.payload) == null ? void 0 : _a.label) || ((_b = item == null ? void 0 : item.payload) == null ? void 0 : _b.id) || topicKey
+    });
+    if (mqttClient == null ? void 0 : mqttClient.connected) {
+      mqttClient.publish(topicKey, "", { retain: true, qos: 1 }, (err) => {
+        if (err) console.error(`[MQTT] Failed to clear retained: ${topicKey}`, err.message);
+        else console.log(`[MQTT] Cleared retained message: ${topicKey}`);
+      });
+    } else {
+      console.warn(`[MQTT] Not connected — removed locally but could not clear retained: ${topicKey}`);
+    }
+  }
+  connect2(settings2);
+  stalenessInterval = setInterval(recheckStaleness, STALENESS_CHECK_MS);
+  return {
+    getSnapshot() {
+      return {
+        items: Object.fromEntries(items),
+        connectionState,
+        removedTopics: [...removedTopics.values()]
+      };
+    },
+    // Applies new settings (host/port/protocol/sources/credentials) and
+    // reconnects from scratch.
+    reconnect(newSettings) {
+      connect2(newSettings);
+    },
+    removeItem(topicKey) {
+      removeTopicInternal(topicKey);
+      emitItems();
+      emitRemovedTopics();
+    },
+    removeItems(topicKeys) {
+      for (const topicKey of topicKeys || []) {
+        if (items.has(topicKey)) removeTopicInternal(topicKey);
+      }
+      emitItems();
+      emitRemovedTopics();
+    },
+    restoreItem(topicKey) {
+      removedTopics.delete(topicKey);
+      if (mqttClient == null ? void 0 : mqttClient.connected) {
+        mqttClient.subscribe(topicKey, { qos: 1 }, (err) => {
+          if (err) console.error(`[MQTT] Failed to re-subscribe: ${topicKey}`, err.message);
+          else console.log(`[MQTT] Re-subscribed (restored): ${topicKey}`);
         });
-        exports.formatArgs.call(self2, args);
-        var logFn = debug2.log || exports.log || console.log.bind(console);
-        logFn.apply(self2, args);
       }
-      debug2.namespace = namespace;
-      debug2.enabled = exports.enabled(namespace);
-      debug2.useColors = exports.useColors();
-      debug2.color = selectColor(namespace);
-      if ("function" === typeof exports.init) {
-        exports.init(debug2);
-      }
-      return debug2;
+      emitRemovedTopics();
+    },
+    end() {
+      clearInterval(stalenessInterval);
+      if (mqttClient) mqttClient.end(true);
     }
-    function enable(namespaces) {
-      exports.save(namespaces);
-      exports.names = [];
-      exports.skips = [];
-      var split = (typeof namespaces === "string" ? namespaces : "").split(/[\s,]+/);
-      var len = split.length;
-      for (var i = 0; i < len; i++) {
-        if (!split[i]) continue;
-        namespaces = split[i].replace(/\*/g, ".*?");
-        if (namespaces[0] === "-") {
-          exports.skips.push(new RegExp("^" + namespaces.substr(1) + "$"));
-        } else {
-          exports.names.push(new RegExp("^" + namespaces + "$"));
-        }
-      }
-    }
-    function disable() {
-      exports.enable("");
-    }
-    function enabled(name) {
-      var i, len;
-      for (i = 0, len = exports.skips.length; i < len; i++) {
-        if (exports.skips[i].test(name)) {
-          return false;
-        }
-      }
-      for (i = 0, len = exports.names.length; i < len; i++) {
-        if (exports.names[i].test(name)) {
-          return true;
-        }
-      }
-      return false;
-    }
-    function coerce(val) {
-      if (val instanceof Error) return val.stack || val.message;
-      return val;
-    }
-  })(debug, debug.exports);
-  return debug.exports;
-}
-var hasRequiredBrowser;
-function requireBrowser() {
-  if (hasRequiredBrowser) return browser.exports;
-  hasRequiredBrowser = 1;
-  (function(module2, exports) {
-    exports = module2.exports = requireDebug();
-    exports.log = log;
-    exports.formatArgs = formatArgs;
-    exports.save = save;
-    exports.load = load2;
-    exports.useColors = useColors;
-    exports.storage = "undefined" != typeof chrome && "undefined" != typeof chrome.storage ? chrome.storage.local : localstorage();
-    exports.colors = [
-      "lightseagreen",
-      "forestgreen",
-      "goldenrod",
-      "dodgerblue",
-      "darkorchid",
-      "crimson"
-    ];
-    function useColors() {
-      if (typeof window !== "undefined" && window.process && window.process.type === "renderer") {
-        return true;
-      }
-      return typeof document !== "undefined" && document.documentElement && document.documentElement.style && document.documentElement.style.WebkitAppearance || // is firebug? http://stackoverflow.com/a/398120/376773
-      typeof window !== "undefined" && window.console && (window.console.firebug || window.console.exception && window.console.table) || // is firefox >= v31?
-      // https://developer.mozilla.org/en-US/docs/Tools/Web_Console#Styling_messages
-      typeof navigator !== "undefined" && navigator.userAgent && navigator.userAgent.toLowerCase().match(/firefox\/(\d+)/) && parseInt(RegExp.$1, 10) >= 31 || // double check webkit in userAgent just in case we are in a worker
-      typeof navigator !== "undefined" && navigator.userAgent && navigator.userAgent.toLowerCase().match(/applewebkit\/(\d+)/);
-    }
-    exports.formatters.j = function(v) {
-      try {
-        return JSON.stringify(v);
-      } catch (err) {
-        return "[UnexpectedJSONParseError]: " + err.message;
-      }
-    };
-    function formatArgs(args) {
-      var useColors2 = this.useColors;
-      args[0] = (useColors2 ? "%c" : "") + this.namespace + (useColors2 ? " %c" : " ") + args[0] + (useColors2 ? "%c " : " ") + "+" + exports.humanize(this.diff);
-      if (!useColors2) return;
-      var c = "color: " + this.color;
-      args.splice(1, 0, c, "color: inherit");
-      var index = 0;
-      var lastC = 0;
-      args[0].replace(/%[a-zA-Z%]/g, function(match) {
-        if ("%%" === match) return;
-        index++;
-        if ("%c" === match) {
-          lastC = index;
-        }
-      });
-      args.splice(lastC, 0, c);
-    }
-    function log() {
-      return "object" === typeof console && console.log && Function.prototype.apply.call(console.log, console, arguments);
-    }
-    function save(namespaces) {
-      try {
-        if (null == namespaces) {
-          exports.storage.removeItem("debug");
-        } else {
-          exports.storage.debug = namespaces;
-        }
-      } catch (e) {
-      }
-    }
-    function load2() {
-      var r;
-      try {
-        r = exports.storage.debug;
-      } catch (e) {
-      }
-      if (!r && typeof process !== "undefined" && "env" in process) {
-        r = process.env.DEBUG;
-      }
-      return r;
-    }
-    exports.enable(load2());
-    function localstorage() {
-      try {
-        return window.localStorage;
-      } catch (e) {
-      }
-    }
-  })(browser, browser.exports);
-  return browser.exports;
-}
-var node = { exports: {} };
-var hasRequiredNode;
-function requireNode() {
-  if (hasRequiredNode) return node.exports;
-  hasRequiredNode = 1;
-  (function(module2, exports) {
-    var tty = require$$0$7;
-    var util2 = require$$1;
-    exports = module2.exports = requireDebug();
-    exports.init = init;
-    exports.log = log;
-    exports.formatArgs = formatArgs;
-    exports.save = save;
-    exports.load = load2;
-    exports.useColors = useColors;
-    exports.colors = [6, 2, 3, 4, 5, 1];
-    exports.inspectOpts = Object.keys(process.env).filter(function(key) {
-      return /^debug_/i.test(key);
-    }).reduce(function(obj, key) {
-      var prop = key.substring(6).toLowerCase().replace(/_([a-z])/g, function(_, k) {
-        return k.toUpperCase();
-      });
-      var val = process.env[key];
-      if (/^(yes|on|true|enabled)$/i.test(val)) val = true;
-      else if (/^(no|off|false|disabled)$/i.test(val)) val = false;
-      else if (val === "null") val = null;
-      else val = Number(val);
-      obj[prop] = val;
-      return obj;
-    }, {});
-    var fd = parseInt(process.env.DEBUG_FD, 10) || 2;
-    if (1 !== fd && 2 !== fd) {
-      util2.deprecate(function() {
-      }, "except for stderr(2) and stdout(1), any other usage of DEBUG_FD is deprecated. Override debug.log if you want to use a different log function (https://git.io/debug_fd)")();
-    }
-    var stream2 = 1 === fd ? process.stdout : 2 === fd ? process.stderr : createWritableStdioStream(fd);
-    function useColors() {
-      return "colors" in exports.inspectOpts ? Boolean(exports.inspectOpts.colors) : tty.isatty(fd);
-    }
-    exports.formatters.o = function(v) {
-      this.inspectOpts.colors = this.useColors;
-      return util2.inspect(v, this.inspectOpts).split("\n").map(function(str) {
-        return str.trim();
-      }).join(" ");
-    };
-    exports.formatters.O = function(v) {
-      this.inspectOpts.colors = this.useColors;
-      return util2.inspect(v, this.inspectOpts);
-    };
-    function formatArgs(args) {
-      var name = this.namespace;
-      var useColors2 = this.useColors;
-      if (useColors2) {
-        var c = this.color;
-        var prefix = "  \x1B[3" + c + ";1m" + name + " \x1B[0m";
-        args[0] = prefix + args[0].split("\n").join("\n" + prefix);
-        args.push("\x1B[3" + c + "m+" + exports.humanize(this.diff) + "\x1B[0m");
-      } else {
-        args[0] = (/* @__PURE__ */ new Date()).toUTCString() + " " + name + " " + args[0];
-      }
-    }
-    function log() {
-      return stream2.write(util2.format.apply(util2, arguments) + "\n");
-    }
-    function save(namespaces) {
-      if (null == namespaces) {
-        delete process.env.DEBUG;
-      } else {
-        process.env.DEBUG = namespaces;
-      }
-    }
-    function load2() {
-      return process.env.DEBUG;
-    }
-    function createWritableStdioStream(fd2) {
-      var stream3;
-      var tty_wrap = process.binding("tty_wrap");
-      switch (tty_wrap.guessHandleType(fd2)) {
-        case "TTY":
-          stream3 = new tty.WriteStream(fd2);
-          stream3._type = "tty";
-          if (stream3._handle && stream3._handle.unref) {
-            stream3._handle.unref();
-          }
-          break;
-        case "FILE":
-          var fs$1 = fs;
-          stream3 = new fs$1.SyncWriteStream(fd2, { autoClose: false });
-          stream3._type = "fs";
-          break;
-        case "PIPE":
-        case "TCP":
-          var net = require$$1$3;
-          stream3 = new net.Socket({
-            fd: fd2,
-            readable: false,
-            writable: true
-          });
-          stream3.readable = false;
-          stream3.read = null;
-          stream3._type = "pipe";
-          if (stream3._handle && stream3._handle.unref) {
-            stream3._handle.unref();
-          }
-          break;
-        default:
-          throw new Error("Implement me. Unknown stream file type!");
-      }
-      stream3.fd = fd2;
-      stream3._isStdio = true;
-      return stream3;
-    }
-    function init(debug2) {
-      debug2.inspectOpts = {};
-      var keys = Object.keys(exports.inspectOpts);
-      for (var i = 0; i < keys.length; i++) {
-        debug2.inspectOpts[keys[i]] = exports.inspectOpts[keys[i]];
-      }
-    }
-    exports.enable(load2());
-  })(node, node.exports);
-  return node.exports;
-}
-var hasRequiredSrc;
-function requireSrc() {
-  if (hasRequiredSrc) return src.exports;
-  hasRequiredSrc = 1;
-  if (typeof process !== "undefined" && process.type === "renderer") {
-    src.exports = requireBrowser();
-  } else {
-    src.exports = requireNode();
-  }
-  return src.exports;
-}
-var electronSquirrelStartup;
-var hasRequiredElectronSquirrelStartup;
-function requireElectronSquirrelStartup() {
-  if (hasRequiredElectronSquirrelStartup) return electronSquirrelStartup;
-  hasRequiredElectronSquirrelStartup = 1;
-  var path$1 = path;
-  var spawn = require$$1$4.spawn;
-  var debug2 = requireSrc()("electron-squirrel-startup");
-  var app = require$$3$1.app;
-  var run = function(args, done) {
-    var updateExe = path$1.resolve(path$1.dirname(process.execPath), "..", "Update.exe");
-    debug2("Spawning `%s` with args `%s`", updateExe, args);
-    spawn(updateExe, args, {
-      detached: true
-    }).on("close", done);
   };
-  var check = function() {
-    if (process.platform === "win32") {
-      var cmd = process.argv[1];
-      debug2("processing squirrel command `%s`", cmd);
-      var target = path$1.basename(process.execPath);
-      if (cmd === "--squirrel-install" || cmd === "--squirrel-updated") {
-        run(["--createShortcut=" + target], app.quit);
-        return true;
-      }
-      if (cmd === "--squirrel-uninstall") {
-        run(["--removeShortcut=" + target], app.quit);
-        return true;
-      }
-      if (cmd === "--squirrel-obsolete") {
-        app.quit();
-        return true;
-      }
-    }
-    return false;
-  };
-  electronSquirrelStartup = check();
-  return electronSquirrelStartup;
 }
-var electronSquirrelStartupExports = requireElectronSquirrelStartup();
-const squirrelStartup = /* @__PURE__ */ getDefaultExportFromCjs(electronSquirrelStartupExports);
-function crc32(data) {
-  const table = new Int32Array(256);
-  for (let i = 0; i < 256; i++) {
-    let c = i;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
-    table[i] = c;
-  }
-  let crc = -1;
-  for (let i = 0; i < data.length; i++) crc = table[(crc ^ data[i]) & 255] ^ crc >>> 8;
-  return crc ^ -1;
-}
-function pngChunk(type, data) {
-  const typeBytes = Buffer.from(type, "ascii");
-  const len = Buffer.allocUnsafe(4);
-  len.writeUInt32BE(data.length);
-  const crcInput = Buffer.concat([typeBytes, data]);
-  const crcBuf = Buffer.allocUnsafe(4);
-  crcBuf.writeInt32BE(crc32(crcInput));
-  return Buffer.concat([len, typeBytes, data, crcBuf]);
-}
-function makeCircleIcon(size, hexFill) {
-  const r = parseInt(hexFill.slice(1, 3), 16);
-  const g = parseInt(hexFill.slice(3, 5), 16);
-  const b = parseInt(hexFill.slice(5, 7), 16);
-  const cx = size / 2;
-  const cy = size / 2;
-  const outerR = size / 2 - 1;
-  const innerR = outerR * 0.55;
-  const stride = size * 4 + 1;
-  const raw = Buffer.alloc(size * stride, 0);
-  for (let y = 0; y < size; y++) {
-    raw[y * stride] = 0;
-    for (let x = 0; x < size; x++) {
-      const dx = x + 0.5 - cx;
-      const dy = y + 0.5 - cy;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const px = y * stride + 1 + x * 4;
-      if (dist <= outerR) {
-        if (dist <= innerR) {
-          const t = 1 - dist / innerR;
-          const bright = Math.round(255 * t * 0.4);
-          raw[px] = Math.min(255, r + bright);
-          raw[px + 1] = Math.min(255, g + bright);
-          raw[px + 2] = Math.min(255, b + bright);
-          raw[px + 3] = 255;
-        } else {
-          raw[px] = r;
-          raw[px + 1] = g;
-          raw[px + 2] = b;
-          raw[px + 3] = 255;
-        }
-      }
+function aggregateItemsStatus(items) {
+  var _a;
+  const values = Object.values(items || {});
+  if (!values.length) return "grey";
+  const statuses = [];
+  const subjectGroups = /* @__PURE__ */ new Map();
+  const now = Date.now();
+  for (const item of values) {
+    if (item.messageType === "connections_status") {
+      const sid = (_a = item.payload) == null ? void 0 : _a.subjectId;
+      if (!subjectGroups.has(sid)) subjectGroups.set(sid, []);
+      subjectGroups.get(sid).push(item);
+    } else if (item.messageType === "connection_status") {
+      statuses.push(computeConnectionStatus(item, now));
+    } else {
+      statuses.push(item.computedStatus || "grey");
     }
   }
-  const compressed = require$$0$9.deflateSync(raw, { level: 6 });
-  const ihdrData = Buffer.allocUnsafe(13);
-  ihdrData.writeUInt32BE(size, 0);
-  ihdrData.writeUInt32BE(size, 4);
-  ihdrData[8] = 8;
-  ihdrData[9] = 6;
-  ihdrData[10] = 0;
-  ihdrData[11] = 0;
-  ihdrData[12] = 0;
-  const png = Buffer.concat([
-    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
-    pngChunk("IHDR", ihdrData),
-    pngChunk("IDAT", compressed),
-    pngChunk("IEND", Buffer.alloc(0))
-  ]);
-  return require$$3$1.nativeImage.createFromBuffer(png);
+  for (const groupItems of subjectGroups.values()) {
+    const downCount = groupItems.filter((i) => computeConnectionStatus(i, now) === "red").length;
+    const status = subjectAggregateStatus(downCount, groupItems.length);
+    statuses.push(status === "orange" ? "yellow" : status);
+  }
+  if (!statuses.length) return "grey";
+  if (statuses.includes("red")) return "red";
+  if (statuses.includes("yellow")) return "yellow";
+  return "green";
 }
-const ICON_SIZE = 22;
-const icons = {
-  green: makeCircleIcon(ICON_SIZE, "#52c41a"),
-  yellow: makeCircleIcon(ICON_SIZE, "#faad14"),
-  red: makeCircleIcon(ICON_SIZE, "#ff4d4f"),
-  grey: makeCircleIcon(ICON_SIZE, "#8c8c8c"),
-  black: makeCircleIcon(ICON_SIZE, "#404040")
-};
-if (squirrelStartup) require$$3$1.app.quit();
+if (squirrelStartup) require$$3.app.quit();
 process.on("uncaughtException", (err) => {
   console.error("[FATAL] Uncaught exception:", err);
 });
 process.on("unhandledRejection", (reason) => {
   console.error("[FATAL] Unhandled promise rejection:", reason);
 });
-const SETTINGS_FILE = path.join(require$$3$1.app.getPath("userData"), "settings.json");
+const SETTINGS_FILE = path.join(require$$3.app.getPath("userData"), "settings.json");
 const DEFAULT_SETTINGS = {
   theme: "dark",
   removedTopics: [],
   mqttHost: "24.121.212.206",
   mqttPort: 1883,
   mqttWsPort: 9001,
+  mqttWsPath: "/ws",
+  mqttProtocol: "mqtt",
   mqttUsername: "",
   mqttPassword: "",
   sources: [
@@ -27038,188 +27313,22 @@ function loginItemSettingsFor(openAtLogin) {
   return { openAtLogin };
 }
 function getAutostart() {
-  return require$$3$1.app.getLoginItemSettings(loginItemSettingsFor(false)).openAtLogin;
+  return require$$3.app.getLoginItemSettings(loginItemSettingsFor(false)).openAtLogin;
 }
 function setAutostart(enabled) {
-  require$$3$1.app.setLoginItemSettings(loginItemSettingsFor(enabled));
+  require$$3.app.setLoginItemSettings(loginItemSettingsFor(enabled));
   return getAutostart();
 }
 let tray = null;
 let mainWindow = null;
-let mqttClient = null;
-let currentConnectionState = "grey";
-let settings = loadSettings();
 let isQuitting = false;
-const items = /* @__PURE__ */ new Map();
-const removedTopics = new Map(
-  (settings.removedTopics || []).map((r) => [r.topicKey, r])
-);
-function saveRemovedTopics() {
-  settings = { ...settings, removedTopics: [...removedTopics.values()] };
-  saveSettings(settings);
-}
-function computeConnectionItemStatus(payload, trackedLastReceived) {
-  const refreshMs = (payload.refreshMinutes || 5) * 6e4;
-  const type = payload.type;
-  if (type === "icmp" || type === "tcp" || type === "dated_file_exists" || type === "file_mtime" || type === "db_currency") {
-    if (payload.checkedAt) {
-      const staleness = Date.now() - new Date(payload.checkedAt).getTime();
-      if (staleness > 5 * refreshMs) return "red";
-      if (staleness > 3 * refreshMs) return "yellow";
-    }
-    if (type === "icmp" || type === "tcp") return payload.available ? "green" : "red";
-    if (type === "dated_file_exists") {
-      if (payload.error) return "red";
-      return payload.exists ? "green" : "red";
-    }
-    if (payload.error) return "red";
-    if (payload.ageSeconds == null) return "red";
-    const ageMs = payload.ageSeconds * 1e3;
-    if (ageMs < 3 * refreshMs) return "green";
-    if (ageMs < 5 * refreshMs) return "yellow";
-    return "red";
-  }
-  const lr = trackedLastReceived || payload.lastReceived;
-  if (!lr) return "red";
-  const age = Date.now() - new Date(lr).getTime();
-  if (age < 3 * refreshMs) return "green";
-  if (age < 5 * refreshMs) return "yellow";
-  return "red";
-}
-function aggregateItemsStatus() {
-  if (!items.size) return "grey";
-  const statuses = [...items.values()].map((i) => i.computedStatus).filter(Boolean);
-  if (!statuses.length) return "grey";
-  if (statuses.includes("red")) return "red";
-  if (statuses.includes("yellow")) return "yellow";
-  return "green";
-}
+let settings = loadSettings();
+let currentConnectionState = "grey";
+let currentItems = {};
 function currentTrayStatus() {
   if (currentConnectionState === "black") return "black";
   if (currentConnectionState === "grey") return "grey";
-  return aggregateItemsStatus();
-}
-function topicsForSource(source) {
-  const base = `${source.projectId}/${source.systemId}`;
-  if (source.type === "process_status") return [`${base}/status`];
-  if (source.type === "connection_status") return [`${base}/checks/+`];
-  return [`${base}/status`, `${base}/checks/+`];
-}
-function messageTypeForTopic(topic, source) {
-  const base = `${source.projectId}/${source.systemId}`;
-  if (source.type === "process_status" && topic === `${base}/status`) return "process_status";
-  if (source.type === "connection_status" && topic.startsWith(`${base}/checks/`)) return "connection_status";
-  if (topic === `${base}/status`) return "process_status";
-  if (topic.startsWith(`${base}/checks/`)) return "connection_status";
-  return null;
-}
-function findSourceForTopic(topic) {
-  for (const source of settings.sources || []) {
-    const type = messageTypeForTopic(topic, source);
-    if (type) return { source, type };
-  }
-  return null;
-}
-function setConnectionState(state2) {
-  currentConnectionState = state2;
-  broadcastConnectionState(state2);
-  updateTray(currentTrayStatus());
-}
-function connectMqtt() {
-  if (mqttClient) {
-    mqttClient.end(true);
-    mqttClient = null;
-  }
-  items.clear();
-  broadcastItems();
-  setConnectionState("grey");
-  const sources = settings.sources || [];
-  if (!sources.length) return;
-  const url = `mqtt://${settings.mqttHost}:${settings.mqttPort}`;
-  const opts = { clean: true, reconnectPeriod: 15e3 };
-  if (settings.mqttUsername) {
-    opts.username = settings.mqttUsername;
-    opts.password = settings.mqttPassword || "";
-  }
-  console.log(`[MQTT] Connecting to ${url}`);
-  mqttClient = mqtt.connect(url, opts);
-  mqttClient.on("connect", () => {
-    console.log("[MQTT] Connected — subscribing to all source topics");
-    for (const source of sources) {
-      for (const topic of topicsForSource(source)) {
-        mqttClient.subscribe(topic, { qos: 1 });
-        console.log(`[MQTT] Subscribed: ${topic}`);
-      }
-    }
-  });
-  mqttClient.on("message", (topic, message) => {
-    if (removedTopics.has(topic)) return;
-    let payload;
-    try {
-      payload = JSON.parse(message.toString());
-    } catch {
-      return;
-    }
-    const match = findSourceForTopic(topic);
-    if (!match) return;
-    const { source, type } = match;
-    const existing = items.get(topic);
-    let computedStatus;
-    let lastReceivedTracked = (existing == null ? void 0 : existing.lastReceivedTracked) ?? null;
-    if (type === "connection_status") {
-      if (payload.lastReceived) lastReceivedTracked = payload.lastReceived;
-      computedStatus = computeConnectionItemStatus(payload, lastReceivedTracked);
-    } else {
-      computedStatus = payload.status || "grey";
-    }
-    items.set(topic, {
-      topicKey: topic,
-      messageType: type,
-      sourceLabel: source.label || source.id,
-      payload,
-      computedStatus,
-      lastReceivedTracked,
-      lastUpdated: (/* @__PURE__ */ new Date()).toISOString()
-    });
-    if (currentConnectionState !== "live") setConnectionState("live");
-    updateTray(currentTrayStatus());
-    broadcastItems();
-    if (type === "process_status") {
-      const prev = existing;
-      if (prev && prev.computedStatus !== computedStatus && currentConnectionState === "live") {
-        sendProcessNotification(source.label, computedStatus, payload);
-      }
-    }
-  });
-  mqttClient.on("error", (err) => {
-    console.error("[MQTT] Error:", err.message);
-    setConnectionState("black");
-  });
-  mqttClient.on("close", () => {
-    if (currentConnectionState === "live") {
-      currentConnectionState = "grey";
-      broadcastConnectionState("grey");
-      updateTray("grey");
-    }
-  });
-}
-function startStalenessCheck() {
-  setInterval(() => {
-    if (currentConnectionState !== "live") return;
-    let changed = false;
-    for (const [key, item] of items) {
-      if (item.messageType !== "connection_status") continue;
-      const newStatus = computeConnectionItemStatus(item.payload, item.lastReceivedTracked);
-      if (newStatus !== item.computedStatus) {
-        items.set(key, { ...item, computedStatus: newStatus });
-        changed = true;
-      }
-    }
-    if (changed) {
-      updateTray(currentTrayStatus());
-      broadcastItems();
-    }
-  }, 6e4);
+  return aggregateItemsStatus(currentItems);
 }
 function statusLabel(s) {
   const labels = {
@@ -27232,13 +27341,13 @@ function statusLabel(s) {
   return labels[s] || "Unknown";
 }
 function buildContextMenu(status) {
-  return require$$3$1.Menu.buildFromTemplate([
+  return require$$3.Menu.buildFromTemplate([
     { label: "Ping Monitor", enabled: false },
     { label: `Status: ${statusLabel(status)}`, enabled: false },
     { type: "separator" },
     { label: "Open Details", click: () => showWindow() },
     { type: "separator" },
-    { label: "Quit", click: () => require$$3$1.app.quit() }
+    { label: "Quit", click: () => require$$3.app.quit() }
   ]);
 }
 function updateTray(status) {
@@ -27249,9 +27358,9 @@ function updateTray(status) {
 }
 function createWindow() {
   const trayBounds = tray ? tray.getBounds() : null;
-  const display = trayBounds && trayBounds.width ? require$$3$1.screen.getDisplayNearestPoint({ x: trayBounds.x, y: trayBounds.y }) : require$$3$1.screen.getPrimaryDisplay();
+  const display = trayBounds && trayBounds.width ? require$$3.screen.getDisplayNearestPoint({ x: trayBounds.x, y: trayBounds.y }) : require$$3.screen.getPrimaryDisplay();
   const height = Math.round(display.workAreaSize.height * 0.9);
-  mainWindow = new require$$3$1.BrowserWindow({
+  mainWindow = new require$$3.BrowserWindow({
     width: 460,
     height,
     resizable: false,
@@ -27286,14 +27395,14 @@ function showWindow() {
   mainWindow.show();
   mainWindow.focus();
 }
-function broadcastItems() {
+function broadcastItems(itemsObj) {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send("mqtt:items", Object.fromEntries(items));
+    mainWindow.webContents.send("mqtt:items", itemsObj);
   }
 }
-function broadcastRemovedTopics() {
+function broadcastRemovedTopics(removedTopicsArray) {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send("mqtt:removedTopics", [...removedTopics.values()]);
+    mainWindow.webContents.send("mqtt:removedTopics", removedTopicsArray);
   }
 }
 function broadcastConnectionState(state2) {
@@ -27302,18 +27411,36 @@ function broadcastConnectionState(state2) {
   }
 }
 function sendProcessNotification(sourceLabel, status, payload) {
-  if (!require$$3$1.Notification.isSupported()) return;
+  if (!require$$3.Notification.isSupported()) return;
   const titles = { green: "Pipeline OK", yellow: "Pipeline Warning", red: "Pipeline Error" };
-  new require$$3$1.Notification({
+  new require$$3.Notification({
     title: `${sourceLabel} — ${titles[status] || "Status Changed"}`,
     body: payload.detail || "",
     urgency: status === "red" ? "critical" : "normal"
   }).show();
 }
-require$$3$1.app.whenReady().then(() => {
-  if (require$$3$1.app.dock) require$$3$1.app.dock.hide();
-  tray = new require$$3$1.Tray(icons.grey);
-  updateTray("grey");
+const runtime = createMqttRuntime(settings, settings.removedTopics || [], {
+  onItems: (itemsObj) => {
+    currentItems = itemsObj;
+    updateTray(currentTrayStatus());
+    broadcastItems(itemsObj);
+  },
+  onConnectionState: (state2) => {
+    currentConnectionState = state2;
+    updateTray(currentTrayStatus());
+    broadcastConnectionState(state2);
+  },
+  onRemovedTopics: (removedTopicsArray) => {
+    settings = { ...settings, removedTopics: removedTopicsArray };
+    saveSettings(settings);
+    broadcastRemovedTopics(removedTopicsArray);
+  },
+  onProcessStatusChange: sendProcessNotification
+});
+require$$3.app.whenReady().then(() => {
+  if (require$$3.app.dock) require$$3.app.dock.hide();
+  tray = new require$$3.Tray(icons.grey);
+  updateTray(currentTrayStatus());
   tray.on("click", () => {
     if (mainWindow && mainWindow.isVisible()) {
       mainWindow.hide();
@@ -27321,70 +27448,40 @@ require$$3$1.app.whenReady().then(() => {
       showWindow();
     }
   });
-  startStalenessCheck();
-  connectMqtt();
 });
-require$$3$1.app.on("before-quit", () => {
+require$$3.app.on("before-quit", () => {
   isQuitting = true;
 });
-require$$3$1.app.on("window-all-closed", () => {
+require$$3.app.on("window-all-closed", () => {
 });
-require$$3$1.app.on("will-quit", () => {
-  if (mqttClient) mqttClient.end(true);
-});
-require$$3$1.ipcMain.handle("items:get", () => ({
-  items: Object.fromEntries(items),
-  connectionState: currentConnectionState,
-  removedTopics: [...removedTopics.values()]
-}));
-require$$3$1.ipcMain.handle("settings:get", () => settings);
-require$$3$1.ipcMain.handle("settings:save", (_e, newSettings) => {
+require$$3.app.on("will-quit", () => runtime.end());
+require$$3.ipcMain.handle("items:get", () => runtime.getSnapshot());
+require$$3.ipcMain.handle("settings:get", () => settings);
+require$$3.ipcMain.handle("settings:save", (_e, newSettings) => {
   settings = { ...settings, ...newSettings };
   saveSettings(settings);
-  connectMqtt();
+  runtime.reconnect(settings);
   return { ok: true };
 });
-require$$3$1.ipcMain.handle("items:remove", (_e, topicKey) => {
-  var _a, _b;
-  const item = items.get(topicKey);
-  items.delete(topicKey);
-  removedTopics.set(topicKey, {
-    topicKey,
-    sourceLabel: (item == null ? void 0 : item.sourceLabel) || "",
-    label: ((_a = item == null ? void 0 : item.payload) == null ? void 0 : _a.label) || ((_b = item == null ? void 0 : item.payload) == null ? void 0 : _b.id) || topicKey
-  });
-  saveRemovedTopics();
-  if (mqttClient == null ? void 0 : mqttClient.connected) {
-    mqttClient.publish(topicKey, "", { retain: true, qos: 1 }, (err) => {
-      if (err) console.error(`[MQTT] Failed to clear retained: ${topicKey}`, err.message);
-      else console.log(`[MQTT] Cleared retained message: ${topicKey}`);
-    });
-  } else {
-    console.warn(`[MQTT] Not connected — removed locally but could not clear retained: ${topicKey}`);
-  }
-  updateTray(currentTrayStatus());
-  broadcastItems();
-  broadcastRemovedTopics();
+require$$3.ipcMain.handle("items:remove", (_e, topicKey) => {
+  runtime.removeItem(topicKey);
   return { ok: true };
 });
-require$$3$1.ipcMain.handle("items:getRemovedTopics", () => [...removedTopics.values()]);
-require$$3$1.ipcMain.handle("items:restore", (_e, topicKey) => {
-  removedTopics.delete(topicKey);
-  saveRemovedTopics();
-  if (mqttClient == null ? void 0 : mqttClient.connected) {
-    mqttClient.subscribe(topicKey, { qos: 1 }, (err) => {
-      if (err) console.error(`[MQTT] Failed to re-subscribe: ${topicKey}`, err.message);
-      else console.log(`[MQTT] Re-subscribed (restored): ${topicKey}`);
-    });
-  }
-  broadcastRemovedTopics();
+require$$3.ipcMain.handle("items:removeMany", (_e, topicKeys) => {
+  const keys = Array.isArray(topicKeys) ? topicKeys : [];
+  runtime.removeItems(keys);
+  return { ok: true, removed: keys.length };
+});
+require$$3.ipcMain.handle("items:getRemovedTopics", () => runtime.getSnapshot().removedTopics);
+require$$3.ipcMain.handle("items:restore", (_e, topicKey) => {
+  runtime.restoreItem(topicKey);
   return { ok: true };
 });
-require$$3$1.ipcMain.handle("shell:openExternal", (_e, url) => require$$3$1.shell.openExternal(url));
-require$$3$1.ipcMain.handle("autostart:get", () => getAutostart());
-require$$3$1.ipcMain.handle("autostart:set", (_e, enabled) => ({ ok: true, enabled: setAutostart(!!enabled) }));
-require$$3$1.ipcMain.handle("theme:get", () => settings.theme || "dark");
-require$$3$1.ipcMain.handle("theme:set", (_e, mode) => {
+require$$3.ipcMain.handle("shell:openExternal", (_e, url) => require$$3.shell.openExternal(url));
+require$$3.ipcMain.handle("autostart:get", () => getAutostart());
+require$$3.ipcMain.handle("autostart:set", (_e, enabled) => ({ ok: true, enabled: setAutostart(!!enabled) }));
+require$$3.ipcMain.handle("theme:get", () => settings.theme || "dark");
+require$$3.ipcMain.handle("theme:set", (_e, mode) => {
   settings = { ...settings, theme: mode === "light" ? "light" : "dark" };
   saveSettings(settings);
   return { ok: true, theme: settings.theme };

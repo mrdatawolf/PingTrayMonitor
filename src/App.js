@@ -5,51 +5,18 @@ import BlockedPanel from './components/BlockedPanel';
 import Settings from './components/Settings';
 import { useMonitorStore, useSettingsStore } from './store';
 import { getColors } from './theme';
-import { subjectAggregateStatus } from './lib/connectionStatus';
-
-// Mirrors aggregateItemsStatus in main.js — keep in sync. "connections"
-// items are grouped by subject so one location's localized path issue
-// (orange) doesn't read as a full outage (red) for the header dot.
-function aggregateFromItems(items) {
-  const statuses = [];
-  const subjectGroups = new Map();
-
-  for (const item of Object.values(items)) {
-    if (item.messageType === 'connections_status') {
-      const sid = item.payload?.subjectId;
-      if (!subjectGroups.has(sid)) subjectGroups.set(sid, []);
-      subjectGroups.get(sid).push(item);
-    } else if (item.computedStatus) {
-      statuses.push(item.computedStatus);
-    }
-  }
-
-  for (const groupItems of subjectGroups.values()) {
-    const downCount = groupItems.filter((i) => i.computedStatus === 'red').length;
-    const status = subjectAggregateStatus(downCount, groupItems.length);
-    statuses.push(status === 'orange' ? 'yellow' : status);
-  }
-
-  if (!statuses.length) return null;
-  if (statuses.includes('red'))    return 'red';
-  if (statuses.includes('yellow')) return 'yellow';
-  return 'green';
-}
+import { aggregateItemsStatus } from './lib/mqttClient';
+import * as runtime from './lib/runtime';
 
 export default function App() {
   const [view, setView] = useState('status');
-  const setItems = useMonitorStore((s) => s.setItems);
-  const setConnectionState = useMonitorStore((s) => s.setConnectionState);
-  const setRemovedTopics = useMonitorStore((s) => s.setRemovedTopics);
   const removedTopics = useMonitorStore((s) => s.removedTopics);
-  const setSettings = useSettingsStore((s) => s.setSettings);
-  const setTheme = useSettingsStore((s) => s.setTheme);
   const mode = useSettingsStore((s) => s.theme);
   const connectionState = useMonitorStore((s) => s.connectionState);
   const items = useMonitorStore((s) => s.items);
 
   const c = getColors(mode);
-  const aggregate = aggregateFromItems(items);
+  const aggregate = aggregateItemsStatus(items);
 
   const headerDotColor =
     connectionState === 'black' ? '#3a3a3a' :
@@ -59,21 +26,7 @@ export default function App() {
     aggregate === 'green'  ? '#52c41a' : '#595959';
 
   useEffect(() => {
-    window.electron?.getItems().then(({ items, connectionState, removedTopics }) => {
-      setItems(items || {});
-      setConnectionState(connectionState);
-      setRemovedTopics(removedTopics || []);
-    });
-    window.electron?.getSettings().then((s) => {
-      if (s) setSettings(s);
-    });
-    window.electron?.getTheme().then((t) => { if (t) setTheme(t); });
-  }, []);
-
-  useEffect(() => {
-    window.electron?.onItems((incoming) => setItems(incoming));
-    window.electron?.onConnection((state) => setConnectionState(state));
-    window.electron?.onRemovedTopics((topics) => setRemovedTopics(topics));
+    runtime.init();
   }, []);
 
   useEffect(() => {

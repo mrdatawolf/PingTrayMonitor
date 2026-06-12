@@ -1,5 +1,6 @@
 import React from 'react';
 import { useMonitorStore, useThemeColors } from '../store';
+import * as runtime from '../lib/runtime';
 
 function BlockedRow({ item }) {
   const c = useThemeColors();
@@ -23,7 +24,7 @@ function BlockedRow({ item }) {
         )}
       </div>
       <button
-        onClick={() => window.electron?.restoreItem(item.topicKey)}
+        onClick={() => runtime.restoreItem(item.topicKey)}
         style={{
           background: 'none',
           border: `1px solid ${c.border}`,

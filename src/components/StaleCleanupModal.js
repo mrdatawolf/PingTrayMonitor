@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Modal, Checkbox, Button } from 'antd';
 import { useThemeColors } from '../store';
 import { formatRelative } from '../lib/connectionStatus';
+import * as runtime from '../lib/runtime';
 
 function GhostRow({ item, checked, onToggle }) {
   const c = useThemeColors();
@@ -54,7 +55,7 @@ export default function StaleCleanupModal({ open, onClose, ghostItems }) {
 
   function handleRemove() {
     const keys = liveGhosts.filter((i) => selected.has(i.topicKey)).map((i) => i.topicKey);
-    window.electron?.removeItems(keys);
+    runtime.removeItems(keys);
     onClose();
   }
 
