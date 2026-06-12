@@ -13,3 +13,4 @@ distribute/
 .vite/build/main.js
 .vite/build/preload.js
 Examples/*
+/dist
