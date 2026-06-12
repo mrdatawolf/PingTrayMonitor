@@ -12,3 +12,4 @@ distribute/
 .vite/build/icons.js
 .vite/build/main.js
 .vite/build/preload.js
+Examples/*
