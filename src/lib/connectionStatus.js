@@ -44,6 +44,39 @@ export function subjectAggregateStatus(downCount, total) {
   return downCount / total > 0.5 ? 'red' : 'orange';
 }
 
+const ORANGE_LIGHT = { r: 0xff, g: 0xd8, b: 0xa8 }; // light amber, ratio 0
+const ORANGE_FULL  = { r: 0xfa, g: 0x8c, b: 0x16 }; // #fa8c16, ratio >= 0.5
+
+// Interpolates a hex color for the 'orange' (minority-down) status, scaled
+// by how close the down-ratio is to subjectAggregateStatus's 0.5 red
+// cutover. Stays in the amber/orange family, distinct from `yellow`
+// (reserved for per-item staleness) so the two meanings never look alike.
+export function orangeSeverityColor(downCount, total) {
+  const ratio = total ? Math.min(downCount / total, 0.5) / 0.5 : 0;
+  const lerp = (a, b) => Math.round(a + (b - a) * ratio);
+  const r = lerp(ORANGE_LIGHT.r, ORANGE_FULL.r);
+  const g = lerp(ORANGE_LIGHT.g, ORANGE_FULL.g);
+  const b = lerp(ORANGE_LIGHT.b, ORANGE_FULL.b);
+  return `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+}
+
+// Per-item status for a connection_status item (computed live) or any
+// other item type (already-computed status).
+export function itemStatus(item, now) {
+  return item.messageType === 'connection_status'
+    ? computeConnectionStatus(item, now)
+    : (item.computedStatus || 'grey');
+}
+
+// True if a source's down items look like one shared/correlated failure
+// (e.g. a location's uplink is down, so every check from that location
+// reports down together) rather than independent problems. Reuses
+// subjectAggregateStatus's >50% majority rule. Requires more than one
+// check total — a single check can't be "correlated."
+export function isLikelyCorrelatedFailure(downCount, total) {
+  return total > 1 && downCount / total > 0.5;
+}
+
 // True if the check flapped or saw packet loss recently, even if it's
 // currently up — surfaces "was this stable?" independent of "is it up now?"
 export function hasRecentInstability(payload) {

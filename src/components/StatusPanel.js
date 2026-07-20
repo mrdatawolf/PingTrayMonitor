@@ -2,12 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { Tag, Switch } from 'antd';
 import {
   CheckCircleFilled, WarningFilled, CloseCircleFilled,
-  ClockCircleOutlined, ThunderboltFilled,
+  ClockCircleOutlined, ThunderboltFilled, CaretRightOutlined,
 } from '@ant-design/icons';
 import { useMonitorStore, useThemeColors } from '../store';
 import {
   computeConnectionStatus, hasRecentInstability, groupConnectionsBySubject,
   formatRelative, isGhostItem, isQuietItem, isQuietSubject,
+  orangeSeverityColor, itemStatus, isLikelyCorrelatedFailure,
 } from '../lib/connectionStatus';
 import * as runtime from '../lib/runtime';
 import StaleCleanupModal from './StaleCleanupModal';
@@ -47,11 +48,14 @@ function StatusIcon({ status, size = 16 }) {
   return <ClockCircleOutlined style={{ color: '#595959', fontSize: size }} />;
 }
 
-function SmallDot({ status }) {
+function SmallDot({ status, color }) {
   return (
     <span
       className={`status-dot ${status || 'grey'}`}
-      style={{ width: 10, height: 10, marginTop: 2, flexShrink: 0 }}
+      style={{
+        width: 10, height: 10, marginTop: 2, flexShrink: 0,
+        ...(color ? { background: color } : {}),
+      }}
     />
   );
 }
@@ -289,15 +293,16 @@ function ProcessRow({ item }) {
 
 function SourceSection({ label, sourceItems, totalCount = sourceItems.length, now, isLast }) {
   const c = useThemeColors();
-  const statuses = sourceItems.map(item =>
-    item.messageType === 'connection_status'
-      ? computeConnectionStatus(item, now)
-      : (item.computedStatus || 'grey')
-  );
+  const statuses = sourceItems.map(item => itemStatus(item, now));
   const agg =
     statuses.includes('red')    ? 'red' :
     statuses.includes('yellow') ? 'yellow' :
     statuses.length             ? 'green' : 'grey';
+
+  const downCount = statuses.filter(s => s === 'red').length;
+  const correlated = isLikelyCorrelatedFailure(downCount, totalCount);
+
+  const [expanded, setExpanded] = useState(!correlated);
 
   const sorted = [...sourceItems].sort((a, b) => {
     const aLabel = a.messageType === 'connection_status'
@@ -311,25 +316,46 @@ function SourceSection({ label, sourceItems, totalCount = sourceItems.length, no
 
   return (
     <div style={{ marginBottom: isLast ? 0 : 16 }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 6,
-        padding: '8px 0 4px',
-        borderBottom: `1px solid ${c.borderFaint}`,
-      }}>
+      <div
+        onClick={correlated ? () => setExpanded(e => !e) : undefined}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '8px 0 4px',
+          borderBottom: `1px solid ${c.borderFaint}`,
+          cursor: correlated ? 'pointer' : 'default',
+        }}
+      >
         <SmallDot status={agg} />
         <span style={{ flex: 1, fontSize: 10, color: c.textSecondary, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>
           {label}
         </span>
+        {correlated && (
+          <CaretRightOutlined
+            style={{
+              fontSize: 10, color: c.textFaint, transition: 'transform 0.15s',
+              transform: expanded ? 'rotate(90deg)' : 'none',
+            }}
+          />
+        )}
         <span style={{ fontSize: 10, color: c.textFaint }}>
           {sourceItems.length === totalCount
             ? `${totalCount} check${totalCount !== 1 ? 's' : ''}`
             : `${sourceItems.length} of ${totalCount} check${totalCount !== 1 ? 's' : ''}`}
         </span>
       </div>
-      {sorted.map(item =>
-        item.messageType === 'connection_status'
-          ? <ConnectionRow key={item.topicKey} item={item} now={now} />
-          : <ProcessRow key={item.topicKey} item={item} />
+      {correlated && !expanded ? (
+        <div
+          onClick={() => setExpanded(true)}
+          style={{ fontSize: 10, color: '#fa8c16', padding: '4px 0', cursor: 'pointer' }}
+        >
+          {downCount} of {totalCount} checks down — likely a shared issue at this location, not {downCount} independent failures
+        </div>
+      ) : (
+        sorted.map(item =>
+          item.messageType === 'connection_status'
+            ? <ConnectionRow key={item.topicKey} item={item} now={now} />
+            : <ProcessRow key={item.topicKey} item={item} />
+        )
       )}
     </div>
   );
@@ -352,9 +378,11 @@ function ConnectionsSubjectGroup({ subjectLabel, items, total, downCount, instab
     summary = `Up now, but ${instableCount} of ${total} location${instableCount !== 1 ? 's' : ''} flapped recently`;
   }
 
+  const severityColor = status === 'orange' ? orangeSeverityColor(downCount, total) : null;
+
   const summaryColor =
     status === 'red'    ? '#ff4d4f' :
-    status === 'orange' ? '#fa8c16' :
+    status === 'orange' ? severityColor :
     instableCount > 0   ? '#fa8c16' : c.textTertiary;
 
   const sorted = [...items].sort((a, b) =>
@@ -368,7 +396,7 @@ function ConnectionsSubjectGroup({ subjectLabel, items, total, downCount, instab
         padding: '8px 0 4px',
         borderBottom: `1px solid ${c.borderFaint}`,
       }}>
-        <SmallDot status={status} />
+        <SmallDot status={status} color={severityColor} />
         <span style={{ flex: 1, fontSize: 10, color: c.textSecondary, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>
           {subjectLabel}
         </span>
@@ -446,11 +474,7 @@ export default function StatusPanel() {
   // Overall aggregate across everything — each "connections" subject
   // collapses to a single status (orange folds into yellow here, same as
   // the tray icon) so one localized path issue doesn't read as a full outage.
-  const regularStatuses = regularItems.map(item =>
-    item.messageType === 'connection_status'
-      ? computeConnectionStatus(item, now)
-      : (item.computedStatus || 'grey')
-  ).filter(Boolean);
+  const regularStatuses = regularItems.map(item => itemStatus(item, now)).filter(Boolean);
 
   const subjectStatuses = subjects.map(s => s.status === 'orange' ? 'yellow' : s.status);
 
