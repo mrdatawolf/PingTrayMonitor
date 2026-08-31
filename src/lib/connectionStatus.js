@@ -35,6 +35,25 @@ export function computeConnectionStatus(item, now) {
   return 'red';
 }
 
+// True once an item hasn't reported recently enough to trust its last
+// self-reported fields (e.g. payload.available) as current — mirrors the
+// same 3x-refresh threshold computeConnectionStatus uses to escalate to
+// yellow/red, so UI reading "stale" lines up with why the dot did.
+export function isStale(item, now) {
+  const { payload } = item;
+  const refreshMs = (payload?.refreshMinutes || 5) * 60_000;
+  const type = payload?.type;
+
+  if (type === 'icmp' || type === 'tcp' || type === 'dated_file_exists' || type === 'file_mtime' || type === 'db_currency') {
+    if (!payload.checkedAt) return false;
+    return now - new Date(payload.checkedAt).getTime() > 3 * refreshMs;
+  }
+
+  const lr = item.lastReceivedTracked || payload?.lastReceived;
+  if (!lr) return true;
+  return now - new Date(lr).getTime() >= 3 * refreshMs;
+}
+
 // Aggregate status for a "connections" subject checked from multiple
 // locations: majority down means the subject itself is likely down (red),
 // a minority means it's more likely a path issue local to those locations

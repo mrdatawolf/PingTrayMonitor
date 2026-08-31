@@ -1,9 +1,15 @@
 import { app, BrowserWindow, Tray, Menu, ipcMain, shell, Notification, screen } from 'electron';
 import path from 'path';
 import fs from 'fs';
+import dotenv from 'dotenv';
 import squirrelStartup from 'electron-squirrel-startup';
 import { icons } from './icons';
 import { createMqttRuntime, aggregateItemsStatus } from '../src/lib/mqttClient.js';
+
+// Only present in a dev checkout (gitignored, never packaged into a
+// distributed build) — silently a no-op otherwise, leaving persisted
+// settings.json / the in-app Settings panel as the credential source.
+dotenv.config();
 
 if (squirrelStartup) app.quit();
 
@@ -93,6 +99,13 @@ let tray = null;
 let mainWindow = null;
 let isQuitting = false;
 let settings = loadSettings();
+
+// .env credentials, when present, are the source of truth — they override
+// whatever is currently persisted in settings.json (e.g. blank from before
+// the broker required auth) without being written back to disk, so the
+// Settings panel still reflects and can locally override them per install.
+if (process.env.MQTT_USERNAME) settings.mqttUsername = process.env.MQTT_USERNAME;
+if (process.env.MQTT_PASSWORD) settings.mqttPassword = process.env.MQTT_PASSWORD;
 
 let currentConnectionState = 'grey'; // 'grey' | 'live' | 'black'
 let currentItems = {};               // topicKey → item, last broadcast from the runtime

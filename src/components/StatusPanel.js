@@ -8,7 +8,7 @@ import { useMonitorStore, useThemeColors } from '../store';
 import {
   computeConnectionStatus, hasRecentInstability, groupConnectionsBySubject,
   formatRelative, isGhostItem, isQuietItem, isQuietSubject,
-  orangeSeverityColor, itemStatus, isLikelyCorrelatedFailure,
+  orangeSeverityColor, itemStatus, isLikelyCorrelatedFailure, isStale,
 } from '../lib/connectionStatus';
 import * as runtime from '../lib/runtime';
 import StaleCleanupModal from './StaleCleanupModal';
@@ -151,6 +151,7 @@ function DeleteButton({ topicKey }) {
 function ConnectionRow({ item, now }) {
   const c = useThemeColors();
   const status = computeConnectionStatus(item, now);
+  const stale = isStale(item, now);
   const { payload } = item;
   const type = payload.type;
 
@@ -225,11 +226,11 @@ function ConnectionRow({ item, now }) {
           </span>
           {payload.available !== undefined && (
             <Tag
-              color={payload.available ? 'success' : 'error'}
+              color={stale ? 'default' : (payload.available ? 'success' : 'error')}
               style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', flexShrink: 0 }}
+              title={stale ? 'Last self-reported state before this check went stale' : undefined}
             >
-              {payload.available ? 'UP' : 'DOWN'}
-
+              {stale ? `Last: ${payload.available ? 'UP' : 'DOWN'}` : (payload.available ? 'UP' : 'DOWN')}
             </Tag>
           )}
         </div>

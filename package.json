@@ -1,6 +1,6 @@
 {
   "name": "ping-tray-monitor",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Unified system-tray monitor for connection and process status",
   "main": ".vite/build/main.js",
   "private": true,
@@ -13,6 +13,7 @@
   "dependencies": {
     "@ant-design/icons": "^5.5.0",
     "antd": "^5.22.0",
+    "dotenv": "^17.4.2",
     "electron-squirrel-startup": "^1.0.1",
     "mqtt": "^5.3.4",
     "react": "^18.3.1",

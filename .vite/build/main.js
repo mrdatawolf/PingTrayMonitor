@@ -18,9 +18,11 @@ var __privateWrapper = (obj, member, setter, getter) => ({
     return __privateGet(obj, member, getter);
   }
 });
-const require$$3 = require("electron");
+const require$$3$1 = require("electron");
 const path = require("path");
 const fs = require("fs");
+const require$$2 = require("os");
+const require$$3 = require("crypto");
 const require$$1$1 = require("child_process");
 const require$$0$4 = require("tty");
 const require$$1 = require("util");
@@ -29,13 +31,11 @@ const zlib = require("zlib");
 const require$$0$7 = require("stream");
 const require$$0$5 = require("buffer");
 const require$$0$6 = require("events");
-const require$$0$8 = require("os");
 const require$$7 = require("url");
-const require$$1$3 = require("https");
-const require$$2 = require("http");
+const require$$1$2 = require("https");
+const require$$2$1 = require("http");
 const require$$4$1 = require("tls");
-const require$$1$2 = require("crypto");
-const require$$3$1 = require("dns");
+const require$$3$2 = require("dns");
 const require$$5 = require("assert");
 var commonjsGlobal = typeof globalThis !== "undefined" ? globalThis : typeof window !== "undefined" ? window : typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : {};
 function getDefaultExportFromCjs(x) {
@@ -65,6 +65,328 @@ function getAugmentedNamespace(n) {
   });
   return a;
 }
+var main = { exports: {} };
+var hasRequiredMain;
+function requireMain() {
+  if (hasRequiredMain) return main.exports;
+  hasRequiredMain = 1;
+  const fs$1 = fs;
+  const path$1 = path;
+  const os = require$$2;
+  const crypto = require$$3;
+  const TIPS = [
+    "◈ encrypted .env [www.dotenvx.com]",
+    "◈ secrets for agents [www.dotenvx.com]",
+    "⌁ auth for agents [www.vestauth.com]",
+    "⌘ custom filepath { path: '/custom/path/.env' }",
+    "⌘ enable debugging { debug: true }",
+    "⌘ override existing { override: true }",
+    "⌘ suppress logs { quiet: true }",
+    "⌘ multiple files { path: ['.env.local', '.env'] }"
+  ];
+  function _getRandomTip() {
+    return TIPS[Math.floor(Math.random() * TIPS.length)];
+  }
+  function parseBoolean(value) {
+    if (typeof value === "string") {
+      return !["false", "0", "no", "off", ""].includes(value.toLowerCase());
+    }
+    return Boolean(value);
+  }
+  function supportsAnsi() {
+    return process.stdout.isTTY;
+  }
+  function dim(text) {
+    return supportsAnsi() ? `\x1B[2m${text}\x1B[0m` : text;
+  }
+  const LINE = /(?:^|^)\s*(?:export\s+)?([\w.-]+)(?:\s*=\s*?|:\s+?)(\s*'(?:\\'|[^'])*'|\s*"(?:\\"|[^"])*"|\s*`(?:\\`|[^`])*`|[^#\r\n]+)?\s*(?:#.*)?(?:$|$)/mg;
+  function parse(src2) {
+    const obj = {};
+    let lines = src2.toString();
+    lines = lines.replace(/\r\n?/mg, "\n");
+    let match;
+    while ((match = LINE.exec(lines)) != null) {
+      const key = match[1];
+      let value = match[2] || "";
+      value = value.trim();
+      const maybeQuote = value[0];
+      value = value.replace(/^(['"`])([\s\S]*)\1$/mg, "$2");
+      if (maybeQuote === '"') {
+        value = value.replace(/\\n/g, "\n");
+        value = value.replace(/\\r/g, "\r");
+      }
+      obj[key] = value;
+    }
+    return obj;
+  }
+  function _parseVault(options) {
+    options = options || {};
+    const vaultPath = _vaultPath(options);
+    options.path = vaultPath;
+    const result = DotenvModule.configDotenv(options);
+    if (!result.parsed) {
+      const err = new Error(`MISSING_DATA: Cannot parse ${vaultPath} for an unknown reason`);
+      err.code = "MISSING_DATA";
+      throw err;
+    }
+    const keys = _dotenvKey(options).split(",");
+    const length = keys.length;
+    let decrypted;
+    for (let i = 0; i < length; i++) {
+      try {
+        const key = keys[i].trim();
+        const attrs = _instructions(result, key);
+        decrypted = DotenvModule.decrypt(attrs.ciphertext, attrs.key);
+        break;
+      } catch (error) {
+        if (i + 1 >= length) {
+          throw error;
+        }
+      }
+    }
+    return DotenvModule.parse(decrypted);
+  }
+  function _warn(message) {
+    console.error(`⚠ ${message}`);
+  }
+  function _debug(message) {
+    console.log(`┆ ${message}`);
+  }
+  function _log(message) {
+    console.log(`◇ ${message}`);
+  }
+  function _dotenvKey(options) {
+    if (options && options.DOTENV_KEY && options.DOTENV_KEY.length > 0) {
+      return options.DOTENV_KEY;
+    }
+    if (process.env.DOTENV_KEY && process.env.DOTENV_KEY.length > 0) {
+      return process.env.DOTENV_KEY;
+    }
+    return "";
+  }
+  function _instructions(result, dotenvKey) {
+    let uri;
+    try {
+      uri = new URL(dotenvKey);
+    } catch (error) {
+      if (error.code === "ERR_INVALID_URL") {
+        const err = new Error("INVALID_DOTENV_KEY: Wrong format. Must be in valid uri format like dotenv://:key_1234@dotenvx.com/vault/.env.vault?environment=development");
+        err.code = "INVALID_DOTENV_KEY";
+        throw err;
+      }
+      throw error;
+    }
+    const key = uri.password;
+    if (!key) {
+      const err = new Error("INVALID_DOTENV_KEY: Missing key part");
+      err.code = "INVALID_DOTENV_KEY";
+      throw err;
+    }
+    const environment = uri.searchParams.get("environment");
+    if (!environment) {
+      const err = new Error("INVALID_DOTENV_KEY: Missing environment part");
+      err.code = "INVALID_DOTENV_KEY";
+      throw err;
+    }
+    const environmentKey = `DOTENV_VAULT_${environment.toUpperCase()}`;
+    const ciphertext = result.parsed[environmentKey];
+    if (!ciphertext) {
+      const err = new Error(`NOT_FOUND_DOTENV_ENVIRONMENT: Cannot locate environment ${environmentKey} in your .env.vault file.`);
+      err.code = "NOT_FOUND_DOTENV_ENVIRONMENT";
+      throw err;
+    }
+    return { ciphertext, key };
+  }
+  function _vaultPath(options) {
+    let possibleVaultPath = null;
+    if (options && options.path && options.path.length > 0) {
+      if (Array.isArray(options.path)) {
+        for (const filepath of options.path) {
+          if (fs$1.existsSync(filepath)) {
+            possibleVaultPath = filepath.endsWith(".vault") ? filepath : `${filepath}.vault`;
+          }
+        }
+      } else {
+        possibleVaultPath = options.path.endsWith(".vault") ? options.path : `${options.path}.vault`;
+      }
+    } else {
+      possibleVaultPath = path$1.resolve(process.cwd(), ".env.vault");
+    }
+    if (fs$1.existsSync(possibleVaultPath)) {
+      return possibleVaultPath;
+    }
+    return null;
+  }
+  function _resolveHome(envPath) {
+    return envPath[0] === "~" ? path$1.join(os.homedir(), envPath.slice(1)) : envPath;
+  }
+  function _configVault(options) {
+    const debug2 = parseBoolean(process.env.DOTENV_CONFIG_DEBUG || options && options.debug);
+    const quiet = parseBoolean(process.env.DOTENV_CONFIG_QUIET || options && options.quiet);
+    if (debug2 || !quiet) {
+      _log("loading env from encrypted .env.vault");
+    }
+    const parsed = DotenvModule._parseVault(options);
+    let processEnv = process.env;
+    if (options && options.processEnv != null) {
+      processEnv = options.processEnv;
+    }
+    DotenvModule.populate(processEnv, parsed, options);
+    return { parsed };
+  }
+  function configDotenv(options) {
+    const dotenvPath = path$1.resolve(process.cwd(), ".env");
+    let encoding = "utf8";
+    let processEnv = process.env;
+    if (options && options.processEnv != null) {
+      processEnv = options.processEnv;
+    }
+    let debug2 = parseBoolean(processEnv.DOTENV_CONFIG_DEBUG || options && options.debug);
+    let quiet = parseBoolean(processEnv.DOTENV_CONFIG_QUIET || options && options.quiet);
+    if (options && options.encoding) {
+      encoding = options.encoding;
+    } else {
+      if (debug2) {
+        _debug("no encoding is specified (UTF-8 is used by default)");
+      }
+    }
+    let optionPaths = [dotenvPath];
+    if (options && options.path) {
+      if (!Array.isArray(options.path)) {
+        optionPaths = [_resolveHome(options.path)];
+      } else {
+        optionPaths = [];
+        for (const filepath of options.path) {
+          optionPaths.push(_resolveHome(filepath));
+        }
+      }
+    }
+    let lastError;
+    const parsedAll = {};
+    for (const path2 of optionPaths) {
+      try {
+        const parsed = DotenvModule.parse(fs$1.readFileSync(path2, { encoding }));
+        DotenvModule.populate(parsedAll, parsed, options);
+      } catch (e) {
+        if (debug2) {
+          _debug(`failed to load ${path2} ${e.message}`);
+        }
+        lastError = e;
+      }
+    }
+    const populated = DotenvModule.populate(processEnv, parsedAll, options);
+    debug2 = parseBoolean(processEnv.DOTENV_CONFIG_DEBUG || debug2);
+    quiet = parseBoolean(processEnv.DOTENV_CONFIG_QUIET || quiet);
+    if (debug2 || !quiet) {
+      const keysCount = Object.keys(populated).length;
+      const shortPaths = [];
+      for (const filePath of optionPaths) {
+        try {
+          const relative = path$1.relative(process.cwd(), filePath);
+          shortPaths.push(relative);
+        } catch (e) {
+          if (debug2) {
+            _debug(`failed to load ${filePath} ${e.message}`);
+          }
+          lastError = e;
+        }
+      }
+      _log(`injected env (${keysCount}) from ${shortPaths.join(",")} ${dim(`// tip: ${_getRandomTip()}`)}`);
+    }
+    if (lastError) {
+      return { parsed: parsedAll, error: lastError };
+    } else {
+      return { parsed: parsedAll };
+    }
+  }
+  function config(options) {
+    if (_dotenvKey(options).length === 0) {
+      return DotenvModule.configDotenv(options);
+    }
+    const vaultPath = _vaultPath(options);
+    if (!vaultPath) {
+      _warn(`you set DOTENV_KEY but you are missing a .env.vault file at ${vaultPath}`);
+      return DotenvModule.configDotenv(options);
+    }
+    return DotenvModule._configVault(options);
+  }
+  function decrypt(encrypted, keyStr) {
+    const key = Buffer.from(keyStr.slice(-64), "hex");
+    let ciphertext = Buffer.from(encrypted, "base64");
+    const nonce = ciphertext.subarray(0, 12);
+    const authTag = ciphertext.subarray(-16);
+    ciphertext = ciphertext.subarray(12, -16);
+    try {
+      const aesgcm = crypto.createDecipheriv("aes-256-gcm", key, nonce);
+      aesgcm.setAuthTag(authTag);
+      return `${aesgcm.update(ciphertext)}${aesgcm.final()}`;
+    } catch (error) {
+      const isRange = error instanceof RangeError;
+      const invalidKeyLength = error.message === "Invalid key length";
+      const decryptionFailed = error.message === "Unsupported state or unable to authenticate data";
+      if (isRange || invalidKeyLength) {
+        const err = new Error("INVALID_DOTENV_KEY: It must be 64 characters long (or more)");
+        err.code = "INVALID_DOTENV_KEY";
+        throw err;
+      } else if (decryptionFailed) {
+        const err = new Error("DECRYPTION_FAILED: Please check your DOTENV_KEY");
+        err.code = "DECRYPTION_FAILED";
+        throw err;
+      } else {
+        throw error;
+      }
+    }
+  }
+  function populate(processEnv, parsed, options = {}) {
+    const debug2 = Boolean(options && options.debug);
+    const override = Boolean(options && options.override);
+    const populated = {};
+    if (typeof parsed !== "object") {
+      const err = new Error("OBJECT_REQUIRED: Please check the processEnv argument being passed to populate");
+      err.code = "OBJECT_REQUIRED";
+      throw err;
+    }
+    for (const key of Object.keys(parsed)) {
+      if (Object.prototype.hasOwnProperty.call(processEnv, key)) {
+        if (override === true) {
+          processEnv[key] = parsed[key];
+          populated[key] = parsed[key];
+        }
+        if (debug2) {
+          if (override === true) {
+            _debug(`"${key}" is already defined and WAS overwritten`);
+          } else {
+            _debug(`"${key}" is already defined and was NOT overwritten`);
+          }
+        }
+      } else {
+        processEnv[key] = parsed[key];
+        populated[key] = parsed[key];
+      }
+    }
+    return populated;
+  }
+  const DotenvModule = {
+    configDotenv,
+    _configVault,
+    _parseVault,
+    config,
+    decrypt,
+    parse,
+    populate
+  };
+  main.exports.configDotenv = DotenvModule.configDotenv;
+  main.exports._configVault = DotenvModule._configVault;
+  main.exports._parseVault = DotenvModule._parseVault;
+  main.exports.config = DotenvModule.config;
+  main.exports.decrypt = DotenvModule.decrypt;
+  main.exports.parse = DotenvModule.parse;
+  main.exports.populate = DotenvModule.populate;
+  main.exports = DotenvModule;
+  return main.exports;
+}
+var mainExports = requireMain();
+const dotenv = /* @__PURE__ */ getDefaultExportFromCjs(mainExports);
 var src$1 = { exports: {} };
 var browser$1 = { exports: {} };
 var debug = { exports: {} };
@@ -508,7 +830,7 @@ function requireElectronSquirrelStartup() {
   var path$1 = path;
   var spawn = require$$1$1.spawn;
   var debug2 = requireSrc$1()("electron-squirrel-startup");
-  var app = require$$3.app;
+  var app = require$$3$1.app;
   var run = function(args, done) {
     var updateExe = path$1.resolve(path$1.dirname(process.execPath), "..", "Update.exe");
     debug2("Spawning `%s` with args `%s`", updateExe, args);
@@ -610,7 +932,7 @@ function makeCircleIcon(size, hexFill) {
     pngChunk("IDAT", compressed),
     pngChunk("IEND", Buffer.alloc(0))
   ]);
-  return require$$3.nativeImage.createFromBuffer(png);
+  return require$$3$1.nativeImage.createFromBuffer(png);
 }
 const ICON_SIZE = 22;
 const icons = {
@@ -8269,7 +8591,7 @@ var hasRequiredSupportsColor;
 function requireSupportsColor() {
   if (hasRequiredSupportsColor) return supportsColor_1;
   hasRequiredSupportsColor = 1;
-  const os = require$$0$8;
+  const os = require$$2;
   const tty = require$$0$4;
   const hasFlag2 = requireHasFlag();
   const { env } = process;
@@ -19377,7 +19699,7 @@ function requireSender() {
   if (hasRequiredSender) return sender;
   hasRequiredSender = 1;
   const { Duplex } = require$$0$7;
-  const { randomFillSync } = require$$1$2;
+  const { randomFillSync } = require$$3;
   const {
     types: { isUint8Array }
   } = require$$1;
@@ -20252,11 +20574,11 @@ function requireWebsocket() {
   if (hasRequiredWebsocket) return websocket;
   hasRequiredWebsocket = 1;
   const EventEmitter = require$$0$6;
-  const https = require$$1$3;
-  const http = require$$2;
+  const https = require$$1$2;
+  const http = require$$2$1;
   const net = require$$4;
   const tls2 = require$$4$1;
-  const { randomBytes, createHash } = require$$1$2;
+  const { randomBytes, createHash } = require$$3;
   const { Duplex, Readable } = require$$0$7;
   const { URL: URL2 } = require$$7;
   const PerMessageDeflate = requirePermessageDeflate();
@@ -21291,9 +21613,9 @@ function requireWebsocketServer() {
   if (hasRequiredWebsocketServer) return websocketServer;
   hasRequiredWebsocketServer = 1;
   const EventEmitter = require$$0$6;
-  const http = require$$2;
+  const http = require$$2$1;
   const { Duplex } = require$$0$7;
-  const { createHash } = require$$1$2;
+  const { createHash } = require$$3;
   const extension2 = requireExtension();
   const PerMessageDeflate = requirePermessageDeflate();
   const subprotocol2 = requireSubprotocol();
@@ -26208,7 +26530,7 @@ function requireSocks() {
   const debug_1 = __importDefault(requireSrc());
   const stream_1 = require$$0$7;
   const socks_1 = requireBuild$1();
-  const dns = __importStar(require$$3$1);
+  const dns = __importStar(require$$3$2);
   const util_1 = require$$1;
   const assert_1 = __importDefault(require$$5);
   const debug2 = (0, debug_1.default)("mqttjs:socks");
@@ -27256,14 +27578,15 @@ function aggregateItemsStatus(items) {
   if (statuses.includes("yellow")) return "yellow";
   return "green";
 }
-if (squirrelStartup) require$$3.app.quit();
+dotenv.config();
+if (squirrelStartup) require$$3$1.app.quit();
 process.on("uncaughtException", (err) => {
   console.error("[FATAL] Uncaught exception:", err);
 });
 process.on("unhandledRejection", (reason) => {
   console.error("[FATAL] Unhandled promise rejection:", reason);
 });
-const SETTINGS_FILE = path.join(require$$3.app.getPath("userData"), "settings.json");
+const SETTINGS_FILE = path.join(require$$3$1.app.getPath("userData"), "settings.json");
 const DEFAULT_SETTINGS = {
   theme: "dark",
   removedTopics: [],
@@ -27313,16 +27636,18 @@ function loginItemSettingsFor(openAtLogin) {
   return { openAtLogin };
 }
 function getAutostart() {
-  return require$$3.app.getLoginItemSettings(loginItemSettingsFor(false)).openAtLogin;
+  return require$$3$1.app.getLoginItemSettings(loginItemSettingsFor(false)).openAtLogin;
 }
 function setAutostart(enabled) {
-  require$$3.app.setLoginItemSettings(loginItemSettingsFor(enabled));
+  require$$3$1.app.setLoginItemSettings(loginItemSettingsFor(enabled));
   return getAutostart();
 }
 let tray = null;
 let mainWindow = null;
 let isQuitting = false;
 let settings = loadSettings();
+if (process.env.MQTT_USERNAME) settings.mqttUsername = process.env.MQTT_USERNAME;
+if (process.env.MQTT_PASSWORD) settings.mqttPassword = process.env.MQTT_PASSWORD;
 let currentConnectionState = "grey";
 let currentItems = {};
 function currentTrayStatus() {
@@ -27341,13 +27666,13 @@ function statusLabel(s) {
   return labels[s] || "Unknown";
 }
 function buildContextMenu(status) {
-  return require$$3.Menu.buildFromTemplate([
+  return require$$3$1.Menu.buildFromTemplate([
     { label: "Ping Monitor", enabled: false },
     { label: `Status: ${statusLabel(status)}`, enabled: false },
     { type: "separator" },
     { label: "Open Details", click: () => showWindow() },
     { type: "separator" },
-    { label: "Quit", click: () => require$$3.app.quit() }
+    { label: "Quit", click: () => require$$3$1.app.quit() }
   ]);
 }
 function updateTray(status) {
@@ -27358,9 +27683,9 @@ function updateTray(status) {
 }
 function createWindow() {
   const trayBounds = tray ? tray.getBounds() : null;
-  const display = trayBounds && trayBounds.width ? require$$3.screen.getDisplayNearestPoint({ x: trayBounds.x, y: trayBounds.y }) : require$$3.screen.getPrimaryDisplay();
+  const display = trayBounds && trayBounds.width ? require$$3$1.screen.getDisplayNearestPoint({ x: trayBounds.x, y: trayBounds.y }) : require$$3$1.screen.getPrimaryDisplay();
   const height = Math.round(display.workAreaSize.height * 0.9);
-  mainWindow = new require$$3.BrowserWindow({
+  mainWindow = new require$$3$1.BrowserWindow({
     width: 460,
     height,
     resizable: false,
@@ -27411,9 +27736,9 @@ function broadcastConnectionState(state2) {
   }
 }
 function sendProcessNotification(sourceLabel, status, payload) {
-  if (!require$$3.Notification.isSupported()) return;
+  if (!require$$3$1.Notification.isSupported()) return;
   const titles = { green: "Pipeline OK", yellow: "Pipeline Warning", red: "Pipeline Error" };
-  new require$$3.Notification({
+  new require$$3$1.Notification({
     title: `${sourceLabel} — ${titles[status] || "Status Changed"}`,
     body: payload.detail || "",
     urgency: status === "red" ? "critical" : "normal"
@@ -27437,9 +27762,9 @@ const runtime = createMqttRuntime(settings, settings.removedTopics || [], {
   },
   onProcessStatusChange: sendProcessNotification
 });
-require$$3.app.whenReady().then(() => {
-  if (require$$3.app.dock) require$$3.app.dock.hide();
-  tray = new require$$3.Tray(icons.grey);
+require$$3$1.app.whenReady().then(() => {
+  if (require$$3$1.app.dock) require$$3$1.app.dock.hide();
+  tray = new require$$3$1.Tray(icons.grey);
   updateTray(currentTrayStatus());
   tray.on("click", () => {
     if (mainWindow && mainWindow.isVisible()) {
@@ -27449,39 +27774,39 @@ require$$3.app.whenReady().then(() => {
     }
   });
 });
-require$$3.app.on("before-quit", () => {
+require$$3$1.app.on("before-quit", () => {
   isQuitting = true;
 });
-require$$3.app.on("window-all-closed", () => {
+require$$3$1.app.on("window-all-closed", () => {
 });
-require$$3.app.on("will-quit", () => runtime.end());
-require$$3.ipcMain.handle("items:get", () => runtime.getSnapshot());
-require$$3.ipcMain.handle("settings:get", () => settings);
-require$$3.ipcMain.handle("settings:save", (_e, newSettings) => {
+require$$3$1.app.on("will-quit", () => runtime.end());
+require$$3$1.ipcMain.handle("items:get", () => runtime.getSnapshot());
+require$$3$1.ipcMain.handle("settings:get", () => settings);
+require$$3$1.ipcMain.handle("settings:save", (_e, newSettings) => {
   settings = { ...settings, ...newSettings };
   saveSettings(settings);
   runtime.reconnect(settings);
   return { ok: true };
 });
-require$$3.ipcMain.handle("items:remove", (_e, topicKey) => {
+require$$3$1.ipcMain.handle("items:remove", (_e, topicKey) => {
   runtime.removeItem(topicKey);
   return { ok: true };
 });
-require$$3.ipcMain.handle("items:removeMany", (_e, topicKeys) => {
+require$$3$1.ipcMain.handle("items:removeMany", (_e, topicKeys) => {
   const keys = Array.isArray(topicKeys) ? topicKeys : [];
   runtime.removeItems(keys);
   return { ok: true, removed: keys.length };
 });
-require$$3.ipcMain.handle("items:getRemovedTopics", () => runtime.getSnapshot().removedTopics);
-require$$3.ipcMain.handle("items:restore", (_e, topicKey) => {
+require$$3$1.ipcMain.handle("items:getRemovedTopics", () => runtime.getSnapshot().removedTopics);
+require$$3$1.ipcMain.handle("items:restore", (_e, topicKey) => {
   runtime.restoreItem(topicKey);
   return { ok: true };
 });
-require$$3.ipcMain.handle("shell:openExternal", (_e, url) => require$$3.shell.openExternal(url));
-require$$3.ipcMain.handle("autostart:get", () => getAutostart());
-require$$3.ipcMain.handle("autostart:set", (_e, enabled) => ({ ok: true, enabled: setAutostart(!!enabled) }));
-require$$3.ipcMain.handle("theme:get", () => settings.theme || "dark");
-require$$3.ipcMain.handle("theme:set", (_e, mode) => {
+require$$3$1.ipcMain.handle("shell:openExternal", (_e, url) => require$$3$1.shell.openExternal(url));
+require$$3$1.ipcMain.handle("autostart:get", () => getAutostart());
+require$$3$1.ipcMain.handle("autostart:set", (_e, enabled) => ({ ok: true, enabled: setAutostart(!!enabled) }));
+require$$3$1.ipcMain.handle("theme:get", () => settings.theme || "dark");
+require$$3$1.ipcMain.handle("theme:set", (_e, mode) => {
   settings = { ...settings, theme: mode === "light" ? "light" : "dark" };
   saveSettings(settings);
   return { ok: true, theme: settings.theme };
