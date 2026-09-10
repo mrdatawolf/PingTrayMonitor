@@ -5,9 +5,15 @@
 // wss. Components should use this module instead of touching
 // `window.electron` or localStorage directly.
 import { createMqttRuntime } from './mqttClient';
+import { createDemoRuntime } from './demoRuntime';
 import { useMonitorStore, useSettingsStore } from '../store';
 
 export const isElectron = typeof window !== 'undefined' && !!window.electron;
+
+// Baked in at build time by vite.demo.config.js (see `npm run build:demo` /
+// start.sh --demo) — a self-contained build that fabricates its own data
+// instead of connecting to a real MQTT broker.
+export const isDemo = import.meta.env.VITE_DEMO_MODE === 'true';
 
 const STORAGE_KEY = 'pingtray.settings';
 
@@ -66,14 +72,18 @@ export function init() {
   setSettings(settings);
   setTheme(settings.theme);
 
-  webRuntime = createMqttRuntime(settings, settings.removedTopics, {
+  const runtimeHandlers = {
     onItems: (items) => setItems(items),
     onConnectionState: (state) => setConnectionState(state),
     onRemovedTopics: (removedTopics) => {
       setRemovedTopics(removedTopics);
       saveWebSettings({ ...loadWebSettings(), removedTopics });
     },
-  });
+  };
+
+  webRuntime = isDemo
+    ? createDemoRuntime(runtimeHandlers)
+    : createMqttRuntime(settings, settings.removedTopics, runtimeHandlers);
 
   const snapshot = webRuntime.getSnapshot();
   setItems(snapshot.items);

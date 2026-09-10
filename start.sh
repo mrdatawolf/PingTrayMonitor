@@ -2,10 +2,43 @@
 set -e
 cd "$(dirname "$0")"
 
+DEMO=false
+for arg in "$@"; do
+  [ "$arg" = "--demo" ] && DEMO=true
+done
+
 # ── Load nvm if available ─────────────────────────────────────────────────────
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
 command -v nvm &>/dev/null && nvm use 22 --silent
+
+# ── Demo mode: self-contained, no .env/MQTT broker required ──────────────────
+# Builds the browser bundle with fabricated data (src/lib/demoRuntime.js) and
+# serves it on the LAN so other devices can open it in a browser.
+if [ "$DEMO" = true ]; then
+  echo "=== Ping Tray Monitor — DEMO mode ==="
+  echo ""
+
+  if [ ! -d "node_modules" ]; then
+    echo "[WARN] node_modules not found — running npm install..."
+    npm install
+  else
+    echo "[OK]   node_modules present"
+  fi
+
+  if command -v node &>/dev/null; then
+    echo "[OK]   Node $(node --version)"
+  else
+    echo "[FAIL] node not found — install Node.js 18+"
+    exit 1
+  fi
+
+  echo ""
+  echo "Building demo bundle..."
+  npm run build:demo
+  echo ""
+  exec node scripts/demo-server.js
+fi
 
 PASS=true
 
