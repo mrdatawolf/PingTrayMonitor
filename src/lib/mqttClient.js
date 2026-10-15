@@ -68,6 +68,10 @@ export function createMqttRuntime(initialSettings, initialRemovedTopics, handler
   // topicKey → { topicKey, messageType, sourceLabel, payload, computedStatus, lastReceivedTracked, lastUpdated }
   const items = new Map();
 
+  // topicKeys the user acknowledged ("seen") while not green. Kept outside
+  // `items` so it survives reconnects; cleared per topic on its next green.
+  const acknowledged = new Set();
+
   // topicKey → { topicKey, sourceLabel, label }
   const removedTopics = new Map((initialRemovedTopics || []).map((r) => [r.topicKey, r]));
 
@@ -157,6 +161,8 @@ export function createMqttRuntime(initialSettings, initialRemovedTopics, handler
         computedStatus = payload.status || 'grey';
       }
 
+      if (computedStatus === 'green') acknowledged.delete(topic);
+
       items.set(topic, {
         topicKey: topic,
         messageType: type,
@@ -165,6 +171,7 @@ export function createMqttRuntime(initialSettings, initialRemovedTopics, handler
         computedStatus,
         lastReceivedTracked,
         lastUpdated: new Date().toISOString(),
+        acknowledged: acknowledged.has(topic),
       });
 
       setConnectionState('live');
@@ -255,6 +262,17 @@ export function createMqttRuntime(initialSettings, initialRemovedTopics, handler
       emitRemovedTopics();
     },
 
+    // Marks an item's current problem as seen (or un-marks it). Ignored for
+    // unknown topics; the flag clears itself on the item's next green.
+    setAcknowledged(topicKey, on) {
+      const item = items.get(topicKey);
+      if (!item) return;
+      if (on) acknowledged.add(topicKey);
+      else    acknowledged.delete(topicKey);
+      items.set(topicKey, { ...item, acknowledged: !!on });
+      emitItems();
+    },
+
     restoreItem(topicKey) {
       removedTopics.delete(topicKey);
       // Re-subscribe to the specific topic to trigger retained message re-delivery
@@ -277,7 +295,8 @@ export function createMqttRuntime(initialSettings, initialRemovedTopics, handler
 // Aggregate connection state + per-item statuses down to a single tray/header
 // color. Mirrors the per-item status rules in connectionStatus.js so
 // "connections" subjects (checked from multiple locations) collapse the same
-// way everywhere. `items` is the topicKey → item object as broadcast by the
+// way everywhere. Acknowledged items count as green so a known issue doesn't
+// hold the tray red/yellow. `items` is the topicKey → item object as broadcast by the
 // runtime (same shape used by the renderer's monitor store).
 export function aggregateItemsStatus(items) {
   const values = Object.values(items || {});
@@ -288,7 +307,9 @@ export function aggregateItemsStatus(items) {
   const now = Date.now();
 
   for (const item of values) {
-    if (item.messageType === 'connections_status') {
+    if (item.acknowledged && item.messageType !== 'connections_status') {
+      statuses.push('green');
+    } else if (item.messageType === 'connections_status') {
       const sid = item.payload?.subjectId;
       if (!subjectGroups.has(sid)) subjectGroups.set(sid, []);
       subjectGroups.get(sid).push(item);
@@ -300,7 +321,7 @@ export function aggregateItemsStatus(items) {
   }
 
   for (const groupItems of subjectGroups.values()) {
-    const downCount = groupItems.filter((i) => computeConnectionStatus(i, now) === 'red').length;
+    const downCount = groupItems.filter((i) => !i.acknowledged && computeConnectionStatus(i, now) === 'red').length;
     const status = subjectAggregateStatus(downCount, groupItems.length);
     // 'orange' (localized path issue) degrades to 'yellow' rather than 'red'.
     statuses.push(status === 'orange' ? 'yellow' : status);

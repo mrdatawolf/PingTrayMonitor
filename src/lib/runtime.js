@@ -110,6 +110,11 @@ export function removeItems(topicKeys) {
   webRuntime?.removeItems(topicKeys);
 }
 
+export function setAcknowledged(topicKey, on) {
+  if (isElectron) return window.electron.setAcknowledged(topicKey, on);
+  webRuntime?.setAcknowledged(topicKey, on);
+}
+
 export function restoreItem(topicKey) {
   if (isElectron) return window.electron.restoreItem(topicKey);
   webRuntime?.restoreItem(topicKey);

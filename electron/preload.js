@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('electron', {
   removeItems:       (topicKeys) => ipcRenderer.invoke('items:removeMany', topicKeys),
   getRemovedTopics:  ()          => ipcRenderer.invoke('items:getRemovedTopics'),
   restoreItem:       (topicKey) => ipcRenderer.invoke('items:restore', topicKey),
+  setAcknowledged:   (topicKey, on) => ipcRenderer.invoke('items:setAcknowledged', topicKey, on),
   onRemovedTopics:   (cb)       => ipcRenderer.on('mqtt:removedTopics', (_e, topics) => cb(topics)),
 
   // Launch at login

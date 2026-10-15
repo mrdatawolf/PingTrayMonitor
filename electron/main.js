@@ -311,6 +311,11 @@ ipcMain.handle('items:restore', (_e, topicKey) => {
   return { ok: true };
 });
 
+ipcMain.handle('items:setAcknowledged', (_e, topicKey, on) => {
+  runtime.setAcknowledged(topicKey, !!on);
+  return { ok: true };
+});
+
 ipcMain.handle('shell:openExternal', (_e, url) => shell.openExternal(url));
 
 ipcMain.handle('autostart:get', () => getAutostart());

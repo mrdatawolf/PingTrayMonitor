@@ -1,11 +1,11 @@
 // Self-contained fake data source for `start.sh --demo`. Implements the same
 // interface as createMqttRuntime (mqttClient.js) — getSnapshot/reconnect/
-// removeItem/removeItems/restoreItem/end — so runtime.js can swap it in
+// removeItem/removeItems/setAcknowledged/restoreItem/end — so runtime.js can swap it in
 // without the rest of the app knowing the difference. No broker, no network:
 // it fabricates a fixed cast of checks and walks them through a scripted
 // "story" of scenes on a timer, looping forever, so a screen left running at
 // a booth/kiosk keeps cycling through the product's interesting states.
-import { computeConnectionStatus } from './connectionStatus';
+import { computeConnectionStatus, itemStatus } from './connectionStatus';
 
 const BOOT_MS = 2_500;   // initial "Connecting…" flash before the story starts
 const JITTER_MS = 4_000; // how often numbers wiggle within the current scene
@@ -185,6 +185,7 @@ export function createDemoRuntime(handlers = {}) {
   let connectionState = 'grey';
   let sceneIndex = 0;
   const removedTopics = new Map();
+  const acknowledged = new Set();
 
   let bootTimer = null;
   let jitterTimer = null;
@@ -211,6 +212,11 @@ export function createDemoRuntime(handlers = {}) {
     const scene = STORY[sceneIndex];
     const next = scene.build();
     for (const topicKey of removedTopics.keys()) delete next[topicKey];
+    const now = Date.now();
+    for (const [topicKey, item] of Object.entries(next)) {
+      if (itemStatus(item, now) === 'green') acknowledged.delete(topicKey);
+      else if (acknowledged.has(topicKey)) item.acknowledged = true;
+    }
     items = next;
     emitConnectionState(scene.connectionState);
     emitItems();
@@ -285,6 +291,15 @@ export function createDemoRuntime(handlers = {}) {
       }
       emitItems();
       emitRemovedTopics();
+    },
+
+    setAcknowledged(topicKey, on) {
+      const item = items[topicKey];
+      if (!item) return;
+      if (on) acknowledged.add(topicKey);
+      else    acknowledged.delete(topicKey);
+      items[topicKey] = { ...item, acknowledged: !!on };
+      emitItems();
     },
 
     restoreItem(topicKey) {

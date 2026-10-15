@@ -87,6 +87,15 @@ export function itemStatus(item, now) {
     : (item.computedStatus || 'grey');
 }
 
+// Acknowledged ("seen") items: the user marked this item's current problem
+// as seen. The runtime clears item.acknowledged the next time the item
+// reports green, so it's only ever set on a not-green item. Acknowledged
+// items display as 'blue' and are left out of the tray/aggregate status, so
+// a known issue doesn't mask new ones.
+export function effectiveItemStatus(item, now) {
+  return item.acknowledged ? 'blue' : itemStatus(item, now);
+}
+
 // True if a source's down items look like one shared/correlated failure
 // (e.g. a location's uplink is down, so every check from that location
 // reports down together) rather than independent problems. Reuses
@@ -115,11 +124,13 @@ export function groupConnectionsBySubject(connectionsItems, now) {
   }
 
   return [...subjectMap.values()].map((group) => {
-    const downCount = group.items.filter((item) => computeConnectionStatus(item, now) === 'red').length;
+    const downCount = group.items.filter((item) => !item.acknowledged && computeConnectionStatus(item, now) === 'red').length;
+    const ackedCount = group.items.filter((item) => item.acknowledged).length;
     const instableCount = group.items.filter((item) => hasRecentInstability(item.payload)).length;
     return {
       ...group,
       downCount,
+      ackedCount,
       instableCount,
       total: group.items.length,
       status: subjectAggregateStatus(downCount, group.items.length),
@@ -184,5 +195,5 @@ export function isQuietItem(item, now) {
 // if every location is up and none flapped recently. Subjects are shown or
 // hidden as a whole.
 export function isQuietSubject(subject) {
-  return subject.status === 'green' && subject.instableCount === 0;
+  return subject.status === 'green' && subject.instableCount === 0 && subject.ackedCount === 0;
 }

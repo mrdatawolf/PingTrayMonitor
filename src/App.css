@@ -54,6 +54,7 @@ button, input, a, .ant-btn, .ant-tabs-tab, .ant-switch {
 .status-dot.yellow { background: #faad14; animation: pulse-yellow 2.0s infinite; }
 .status-dot.orange { background: #fa8c16; animation: pulse-orange 2.0s infinite; }
 .status-dot.red    { background: #ff4d4f; animation: pulse-red    1.5s infinite; }
+.status-dot.blue   { background: #1677ff; }
 .status-dot.grey   { background: var(--color-grey-dot); }
 .status-dot.black  { background: var(--color-black-dot); }
 

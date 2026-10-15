@@ -3,12 +3,13 @@ import { Tag, Switch } from 'antd';
 import {
   CheckCircleFilled, WarningFilled, CloseCircleFilled,
   ClockCircleOutlined, ThunderboltFilled, CaretRightOutlined,
+  EyeInvisibleOutlined, UndoOutlined,
 } from '@ant-design/icons';
 import { useMonitorStore, useThemeColors } from '../store';
 import {
   computeConnectionStatus, hasRecentInstability, groupConnectionsBySubject,
   formatRelative, isGhostItem, isQuietItem, isQuietSubject,
-  orangeSeverityColor, itemStatus, isLikelyCorrelatedFailure, isStale,
+  orangeSeverityColor, effectiveItemStatus, isLikelyCorrelatedFailure, isStale,
 } from '../lib/connectionStatus';
 import * as runtime from '../lib/runtime';
 import StaleCleanupModal from './StaleCleanupModal';
@@ -30,6 +31,7 @@ const STATUS_COLORS = {
   yellow: '#faad14',
   orange: '#fa8c16',
   red:    '#ff4d4f',
+  blue:   '#1677ff', // acknowledged — problem seen, ignored until next green
   grey:   '#595959',
 };
 
@@ -146,11 +148,48 @@ function DeleteButton({ topicKey }) {
   );
 }
 
+// ─── Acknowledge button ──────────────────────────────────────────────────────
+
+// Marks a not-green item as "seen": it shows blue and stops counting toward
+// the tray/aggregate status until it next reports green (the runtime clears
+// the flag then). Clicking again on an acknowledged item un-acknowledges it.
+function AckButton({ item, status }) {
+  const c = useThemeColors();
+  const [hovered, setHovered] = useState(false);
+  if (!item.acknowledged && status === 'green') return null;
+
+  function handleClick(e) {
+    e.stopPropagation();
+    runtime.setAcknowledged(item.topicKey, !item.acknowledged);
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      title={item.acknowledged
+        ? 'Acknowledged — click to stop ignoring this issue'
+        : 'Acknowledge — ignore this issue until it next reports OK'}
+      style={{
+        background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px',
+        fontSize: 12, lineHeight: 1, flexShrink: 0, marginLeft: 2,
+        color: item.acknowledged ? STATUS_COLORS.blue : hovered ? c.textSecondary : c.border,
+        transition: 'color 0.15s',
+        WebkitAppRegion: 'no-drag',
+      }}
+    >
+      {item.acknowledged ? <UndoOutlined /> : <EyeInvisibleOutlined />}
+    </button>
+  );
+}
+
 // ─── Connection item row ──────────────────────────────────────────────────────
 
 function ConnectionRow({ item, now }) {
   const c = useThemeColors();
-  const status = computeConnectionStatus(item, now);
+  const rawStatus = computeConnectionStatus(item, now);
+  const status = item.acknowledged ? 'blue' : rawStatus;
   const stale = isStale(item, now);
   const { payload } = item;
   const type = payload.type;
@@ -226,9 +265,11 @@ function ConnectionRow({ item, now }) {
           </span>
           {payload.available !== undefined && (
             <Tag
-              color={stale ? 'default' : (payload.available ? 'success' : 'error')}
+              color={item.acknowledged ? 'blue' : stale ? 'default' : (payload.available ? 'success' : 'error')}
               style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', flexShrink: 0 }}
-              title={stale ? 'Last self-reported state before this check went stale' : undefined}
+              title={item.acknowledged
+                ? 'Acknowledged — ignored until this check next reports OK'
+                : stale ? 'Last self-reported state before this check went stale' : undefined}
             >
               {stale ? `Last: ${payload.available ? 'UP' : 'DOWN'}` : (payload.available ? 'UP' : 'DOWN')}
             </Tag>
@@ -239,6 +280,7 @@ function ConnectionRow({ item, now }) {
           <InstabilityBadge payload={payload} />
         </div>
       </div>
+      <AckButton item={item} status={rawStatus} />
       <DeleteButton topicKey={item.topicKey} />
     </div>
   );
@@ -256,21 +298,23 @@ function ProcessRow({ item }) {
   const c = useThemeColors();
   const { payload, sourceLabel } = item;
   const cfg = PROCESS_STATUS_CONFIG[payload.status] || { label: 'Unknown' };
+  const status = item.acknowledged ? 'blue' : payload.status;
 
   return (
     <div style={{
       display: 'flex', alignItems: 'flex-start', gap: 10,
       padding: '7px 0', borderBottom: `1px solid ${c.rowBorder}`,
     }}>
-      <SmallDot status={payload.status} />
+      <SmallDot status={status} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ fontSize: 12, color: c.textBody, fontWeight: 500, flex: 1 }}>
             {sourceLabel}
           </span>
           <Tag
-            color={payload.status === 'green' ? 'success' : payload.status === 'yellow' ? 'warning' : 'error'}
+            color={item.acknowledged ? 'blue' : payload.status === 'green' ? 'success' : payload.status === 'yellow' ? 'warning' : 'error'}
             style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', flexShrink: 0 }}
+            title={item.acknowledged ? 'Acknowledged — ignored until this process next reports OK' : undefined}
           >
             {cfg.label}
           </Tag>
@@ -285,6 +329,7 @@ function ProcessRow({ item }) {
           </div>
         )}
       </div>
+      <AckButton item={item} status={payload.status} />
       <DeleteButton topicKey={item.topicKey} />
     </div>
   );
@@ -294,10 +339,11 @@ function ProcessRow({ item }) {
 
 function SourceSection({ label, sourceItems, totalCount = sourceItems.length, now, isLast }) {
   const c = useThemeColors();
-  const statuses = sourceItems.map(item => itemStatus(item, now));
+  const statuses = sourceItems.map(item => effectiveItemStatus(item, now));
   const agg =
     statuses.includes('red')    ? 'red' :
     statuses.includes('yellow') ? 'yellow' :
+    statuses.includes('blue')   ? 'blue' :
     statuses.length             ? 'green' : 'grey';
 
   const downCount = statuses.filter(s => s === 'red').length;
@@ -367,7 +413,7 @@ function SourceSection({ label, sourceItems, totalCount = sourceItems.length, no
 // One "subject" (e.g. a WAN circuit) checked from one or more locations.
 // The subject-level dot/summary applies the down-from-N-locations rule;
 // each location's own check is shown as a normal connection row below.
-function ConnectionsSubjectGroup({ subjectLabel, items, total, downCount, instableCount, status, now, isLast }) {
+function ConnectionsSubjectGroup({ subjectLabel, items, total, downCount, ackedCount, instableCount, status, now, isLast }) {
   const c = useThemeColors();
 
   let summary = null;
@@ -397,7 +443,7 @@ function ConnectionsSubjectGroup({ subjectLabel, items, total, downCount, instab
         padding: '8px 0 4px',
         borderBottom: `1px solid ${c.borderFaint}`,
       }}>
-        <SmallDot status={status} color={severityColor} />
+        <SmallDot status={status === 'green' && ackedCount > 0 ? 'blue' : status} color={severityColor} />
         <span style={{ flex: 1, fontSize: 10, color: c.textSecondary, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>
           {subjectLabel}
         </span>
@@ -475,7 +521,9 @@ export default function StatusPanel() {
   // Overall aggregate across everything — each "connections" subject
   // collapses to a single status (orange folds into yellow here, same as
   // the tray icon) so one localized path issue doesn't read as a full outage.
-  const regularStatuses = regularItems.map(item => itemStatus(item, now)).filter(Boolean);
+  // Acknowledged items read as 'blue' and fall through to green below, so
+  // they don't hold the hero red/yellow — they get their own count instead.
+  const regularStatuses = regularItems.map(item => effectiveItemStatus(item, now)).filter(Boolean);
 
   const subjectStatuses = subjects.map(s => s.status === 'orange' ? 'yellow' : s.status);
 
@@ -495,6 +543,8 @@ export default function StatusPanel() {
   const redCount    = allStatuses.filter(s => s === 'red').length;
   const yellowCount = allStatuses.filter(s => s === 'yellow').length;
   const greenCount  = allStatuses.filter(s => s === 'green').length;
+  const ackedCount  = regularStatuses.filter(s => s === 'blue').length
+    + subjects.reduce((sum, s) => sum + s.ackedCount, 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -515,6 +565,7 @@ export default function StatusPanel() {
             {greenCount  > 0 && <span style={{ color: '#52c41a' }}>{greenCount} OK</span>}
             {yellowCount > 0 && <span style={{ color: '#faad14' }}>{yellowCount} degraded</span>}
             {redCount    > 0 && <span style={{ color: '#ff4d4f' }}>{redCount} down</span>}
+            {ackedCount  > 0 && <span style={{ color: STATUS_COLORS.blue }}>{ackedCount} acknowledged</span>}
           </div>
         </div>
         <StatusIcon status={aggregate} size={22} />
