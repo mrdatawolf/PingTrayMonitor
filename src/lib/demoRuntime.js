@@ -59,6 +59,27 @@ function processItem(topicKey, sourceLabel, { status, detail, stage, ageMs = 0 }
   };
 }
 
+// Server liveness beacon. `ageMs` past ~3 minutes reads as a stopped
+// heartbeat; `reachabilitySubjects` mirrors the per-source "Reached via"
+// setting the real runtime attaches.
+function heartbeatItem(origin, sourceLabel, { ageMs = 0, checks = [], connectionTests = [], reachabilitySubjects = [] } = {}) {
+  return {
+    topicKey: `${origin}/heartbeat`,
+    messageType: 'heartbeat',
+    sourceLabel,
+    payload: {
+      serverStarted: isoAgo(30 * 86_400_000),
+      checks,
+      connectionTests,
+      publishedAt: isoAgo(ageMs),
+    },
+    computedStatus: ageMs > 3 * 60_000 ? 'stale' : 'alive',
+    reachabilitySubjects,
+    blockedTopics: [],
+    lastUpdated: isoNow(),
+  };
+}
+
 function icmp(id, label, { available, latencyMs, packetLoss = 0, transitions1h = 0, rollingPacketLoss10 = 0, ageMs = 0 }) {
   return { id, label, type: 'icmp', available, latencyMs, packetLoss, checkedAt: isoAgo(ageMs), refreshMinutes: 1, transitions1h, rollingPacketLoss10 };
 }
@@ -90,9 +111,14 @@ function dbCurrency(id, label, { ageSeconds, error, ageMs = 0 }) {
 const CIRCUIT_ID = 'wan-circuit-1';
 const CIRCUIT_LABEL = 'Branch A ↔ HQ Circuit';
 
-function baseItems({ branchADown = false, circuitDownLocations = [] } = {}) {
-  const circuitLeg = (id, label) => subjectItem(
-    `connections/${CIRCUIT_ID}/${id}`, CIRCUIT_ID, CIRCUIT_LABEL,
+// Each location's server publishes under demo/<location>/..., and its leg of
+// the shared circuit under connections/<subjectId>/demo/<location>/<id>, so
+// the origin-server lookup works the same as with real topics.
+function baseItems({
+  branchADown = false, circuitDownLocations = [], branchAHeartbeatAgeMs = 0, hqMissingCheck = false,
+} = {}) {
+  const circuitLeg = (location, id, label) => subjectItem(
+    `connections/${CIRCUIT_ID}/demo/${location}/${id}`, CIRCUIT_ID, CIRCUIT_LABEL,
     icmp(id, label, circuitDownLocations.includes(id)
       ? { available: false, latencyMs: null, ageMs: 0 }
       : { available: true, latencyMs: jitter(10, 3), ageMs: 0 }),
@@ -115,9 +141,31 @@ function baseItems({ branchADown = false, circuitDownLocations = [] } = {}) {
     connectionItem('demo/hq/checks/orders-db', 'HQ Datacenter', dbCurrency('orders-db', 'Orders DB Freshness', { ageSeconds: jitter(60, 20) })),
     connectionItem('demo/hq/checks/eod-report', 'HQ Datacenter', datedFileExists('eod-report', 'End-of-Day Report', { exists: true, sizeBytes: 184_320 })),
 
-    circuitLeg('from-branch-a', 'From Branch A'),
-    circuitLeg('from-branch-b', 'From Branch B'),
-    circuitLeg('from-hq', 'From HQ'),
+    circuitLeg('branch-a', 'from-branch-a', 'From Branch A'),
+    circuitLeg('branch-b', 'from-branch-b', 'From Branch B'),
+    circuitLeg('hq', 'from-hq', 'From HQ'),
+
+    heartbeatItem('demo/branch-a', 'Branch A', {
+      ageMs: branchAHeartbeatAgeMs,
+      checks: [
+        { id: 'icmp-gateway', type: 'icmp', label: 'Gateway Router' },
+        { id: 'tcp-pos', type: 'tcp', label: 'POS Terminal Link' },
+        { id: 'file-backup', type: 'file_mtime', label: 'Nightly Backup Drop' },
+      ],
+      connectionTests: [{ id: 'from-branch-a', type: 'icmp', label: 'From Branch A', subjectId: CIRCUIT_ID }],
+      reachabilitySubjects: [CIRCUIT_ID],
+    }),
+    heartbeatItem('demo/hq', 'HQ Datacenter', {
+      checks: [
+        { id: 'orders-db', type: 'db_currency', label: 'Orders DB Freshness' },
+        { id: 'eod-report', type: 'dated_file_exists', label: 'End-of-Day Report' },
+        ...(hqMissingCheck ? [{ id: 'tape-backup', type: 'file_mtime', label: 'Tape Backup Log' }] : []),
+      ],
+      connectionTests: [{ id: 'from-hq', type: 'icmp', label: 'From HQ', subjectId: CIRCUIT_ID }],
+    }),
+    heartbeatItem('demo/branch-b', 'Branch B', {
+      connectionTests: [{ id: 'from-branch-b', type: 'icmp', label: 'From Branch B', subjectId: CIRCUIT_ID }],
+    }),
   ];
 }
 
@@ -152,6 +200,42 @@ const STORY = [
     duration: 15_000,
     connectionState: 'live',
     build: () => itemsFromList(baseItems({ branchADown: true, circuitDownLocations: ['from-branch-a', 'from-branch-b'] })),
+  },
+  {
+    // Branch A's monitoring service stops but the site still answers pings
+    // from the other locations: Branch A's checks go grey and its server
+    // row goes brown, with no change to the overall/tray status.
+    name: 'server-not-reporting',
+    duration: 14_000,
+    connectionState: 'live',
+    build: () => {
+      const list = baseItems({ branchAHeartbeatAgeMs: 6 * 60_000 });
+      for (const item of list) {
+        if (item.topicKey.includes('/branch-a/') && item.messageType !== 'heartbeat') item.payload.checkedAt = isoAgo(6 * 60_000);
+      }
+      return itemsFromList(list);
+    },
+  },
+  {
+    // Branch A goes dark entirely: heartbeat stops AND the other locations
+    // can't reach it, so the server row goes red (internet down).
+    name: 'site-offline',
+    duration: 14_000,
+    connectionState: 'live',
+    build: () => {
+      const list = baseItems({ branchAHeartbeatAgeMs: 6 * 60_000, circuitDownLocations: ['from-branch-b', 'from-hq'] });
+      for (const item of list) {
+        if (item.topicKey.includes('/branch-a/') && item.messageType !== 'heartbeat') item.payload.checkedAt = isoAgo(6 * 60_000);
+      }
+      return itemsFromList(list);
+    },
+  },
+  {
+    // HQ's heartbeat lists a check that never publishes.
+    name: 'missing-check',
+    duration: 12_000,
+    connectionState: 'live',
+    build: () => itemsFromList(baseItems({ hqMissingCheck: true })),
   },
   {
     name: 'stale-ghosts',

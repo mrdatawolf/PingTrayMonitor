@@ -7,9 +7,9 @@ import {
 } from '@ant-design/icons';
 import { useMonitorStore, useThemeColors } from '../store';
 import {
-  computeConnectionStatus, hasRecentInstability, groupConnectionsBySubject,
-  formatRelative, isGhostItem, isQuietItem, isQuietSubject,
+  hasRecentInstability, formatRelative, isGhostItem, isQuietItem, isQuietSubject,
   orangeSeverityColor, effectiveItemStatus, isLikelyCorrelatedFailure, isStale,
+  itemStatus, summarizeItems,
 } from '../lib/connectionStatus';
 import * as runtime from '../lib/runtime';
 import StaleCleanupModal from './StaleCleanupModal';
@@ -32,6 +32,7 @@ const STATUS_COLORS = {
   orange: '#fa8c16',
   red:    '#ff4d4f',
   blue:   '#1677ff', // acknowledged — problem seen, ignored until next green
+  brown:  '#c49a6c', // server not reporting, but its site still answers pings
   grey:   '#595959',
 };
 
@@ -188,8 +189,8 @@ function AckButton({ item, status }) {
 
 function ConnectionRow({ item, now }) {
   const c = useThemeColors();
-  const rawStatus = computeConnectionStatus(item, now);
-  const status = item.acknowledged ? 'blue' : rawStatus;
+  const rawStatus = itemStatus(item, now);
+  const status = item.originOffline ? 'grey' : item.acknowledged ? 'blue' : rawStatus;
   const stale = isStale(item, now);
   const { payload } = item;
   const type = payload.type;
@@ -276,6 +277,7 @@ function ConnectionRow({ item, now }) {
           )}
         </div>
         <div style={{ fontSize: 10, color: c.textTertiary, marginTop: 2, display: 'flex', alignItems: 'center', gap: 10 }}>
+          {item.originOffline && <span style={{ flexShrink: 0 }} title="The server that runs this check has stopped sending its heartbeat, so this result isn't current">server offline</span>}
           {detail}
           <InstabilityBadge payload={payload} />
         </div>
@@ -298,7 +300,7 @@ function ProcessRow({ item }) {
   const c = useThemeColors();
   const { payload, sourceLabel } = item;
   const cfg = PROCESS_STATUS_CONFIG[payload.status] || { label: 'Unknown' };
-  const status = item.acknowledged ? 'blue' : payload.status;
+  const status = item.originOffline ? 'grey' : item.acknowledged ? 'blue' : payload.status;
 
   return (
     <div style={{
@@ -344,7 +346,7 @@ function SourceSection({ label, sourceItems, totalCount = sourceItems.length, no
     statuses.includes('red')    ? 'red' :
     statuses.includes('yellow') ? 'yellow' :
     statuses.includes('blue')   ? 'blue' :
-    statuses.length             ? 'green' : 'grey';
+    statuses.some(s => s !== 'grey') ? 'green' : 'grey';
 
   const downCount = statuses.filter(s => s === 'red').length;
   const correlated = isLikelyCorrelatedFailure(downCount, totalCount);
@@ -413,7 +415,7 @@ function SourceSection({ label, sourceItems, totalCount = sourceItems.length, no
 // One "subject" (e.g. a WAN circuit) checked from one or more locations.
 // The subject-level dot/summary applies the down-from-N-locations rule;
 // each location's own check is shown as a normal connection row below.
-function ConnectionsSubjectGroup({ subjectLabel, items, total, downCount, ackedCount, instableCount, status, now, isLast }) {
+function ConnectionsSubjectGroup({ subjectLabel, items, total, downCount, ackedCount, instableCount, offlineCount, status, now, isLast }) {
   const c = useThemeColors();
 
   let summary = null;
@@ -449,6 +451,7 @@ function ConnectionsSubjectGroup({ subjectLabel, items, total, downCount, ackedC
         </span>
         <span style={{ fontSize: 10, color: c.textFaint }}>
           {total} location{total !== 1 ? 's' : ''}
+          {offlineCount > 0 && ` · ${offlineCount} offline`}
         </span>
       </div>
       {summary && (
@@ -457,6 +460,88 @@ function ConnectionsSubjectGroup({ subjectLabel, items, total, downCount, ackedC
         </div>
       )}
       {sorted.map(item => <ConnectionRow key={item.topicKey} item={item} now={now} />)}
+    </div>
+  );
+}
+
+// ─── Servers (heartbeats) ─────────────────────────────────────────────────────
+
+const SERVER_STATUS_TAGS = {
+  green:  { color: 'success', text: 'Online' },
+  yellow: { color: 'warning', text: 'Checks missing' },
+  red:    { color: 'error',   text: 'Internet down' },
+  brown:  { color: '#c49a6c', text: 'Not reporting' },
+};
+
+function serverExplanation(server) {
+  if (server.status === 'red') {
+    return `Heartbeat stopped and ${server.reachSubjects.map(s => s.subjectLabel).join(' / ')} is down from other locations — this site's internet is likely down. Its checks are greyed out.`;
+  }
+  if (server.status === 'brown') {
+    return server.reachability === 'up'
+      ? 'Heartbeat stopped but the site still answers pings — the monitoring service has likely stopped. Its checks are greyed out.'
+      : 'Heartbeat stopped. No reachability data for this site (set "Reached via" in Settings), so it can\'t be told apart from an outage. Its checks are greyed out.';
+  }
+  if (server.status === 'yellow') {
+    return `Heartbeat lists ${server.missing.length} check${server.missing.length !== 1 ? 's' : ''} that never reported: ${server.missing.map(m => m.label).join(', ')}`;
+  }
+  return null;
+}
+
+function ServerRow({ server }) {
+  const c = useThemeColors();
+  const tag = SERVER_STATUS_TAGS[server.status];
+  const explanation = serverExplanation(server);
+  const color = server.status === 'brown' ? STATUS_COLORS.brown : null;
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'flex-start', gap: 10,
+      padding: '7px 0', borderBottom: `1px solid ${c.rowBorder}`,
+    }}>
+      <SmallDot status={server.status} color={color} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 12, color: c.textBody, fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={server.originKey}>
+            {server.label}
+          </span>
+          <Tag color={tag.color} style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', flexShrink: 0 }}>
+            {tag.text}
+          </Tag>
+        </div>
+        <div style={{ fontSize: 10, color: c.textTertiary, marginTop: 2, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span>heartbeat: {formatRelative(server.lastSeen)}</span>
+          {server.expectedCount > 0 && <span>{server.expectedCount} check{server.expectedCount !== 1 ? 's' : ''}</span>}
+          {server.serverStarted && <span>up since {new Date(server.serverStarted).toLocaleDateString()}</span>}
+        </div>
+        {explanation && (
+          <div style={{ fontSize: 10, color: color || STATUS_COLORS[server.status], marginTop: 2 }}>
+            {explanation}
+          </div>
+        )}
+      </div>
+      <DeleteButton topicKey={server.topicKey} />
+    </div>
+  );
+}
+
+function ServersSection({ servers, isLast }) {
+  const c = useThemeColors();
+  return (
+    <div style={{ marginBottom: isLast ? 0 : 16 }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        padding: '8px 0 4px',
+        borderBottom: `1px solid ${c.borderFaint}`,
+      }}>
+        <span style={{ flex: 1, fontSize: 10, color: c.textSecondary, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>
+          Servers
+        </span>
+        <span style={{ fontSize: 10, color: c.textFaint }}>
+          {servers.length} server{servers.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+      {servers.map(server => <ServerRow key={server.topicKey} server={server} />)}
     </div>
   );
 }
@@ -486,13 +571,14 @@ export default function StatusPanel() {
   // one-click bulk cleanup.
   const ghostItems = allItems.filter(item => isGhostItem(item, now));
 
-  // "connections" items are a multi-location view of a shared subject (e.g.
-  // a WAN circuit checked from several sites) — group those by subject
-  // rather than by reporting source.
-  const connectionsItems = allItems.filter(item => item.messageType === 'connections_status');
-  const regularItems = allItems.filter(item => item.messageType !== 'connections_status');
-  const subjects = groupConnectionsBySubject(connectionsItems, now)
-    .sort((a, b) => a.subjectLabel.localeCompare(b.subjectLabel));
+  // Items from servers whose heartbeat went stale are flagged originOffline
+  // (grey, ignored by the aggregate). "connections" items are a
+  // multi-location view of a shared subject (e.g. a WAN circuit checked from
+  // several sites) — grouped by subject rather than by reporting source.
+  const summary = summarizeItems(allItems, now);
+  const { regularItems, servers } = summary;
+  const subjects = [...summary.subjects].sort((a, b) => a.subjectLabel.localeCompare(b.subjectLabel));
+  const sortedServers = [...servers].sort((a, b) => a.label.localeCompare(b.label));
 
   // Group remaining items by source label, sorted alphabetically
   const sourceMap = new Map();
@@ -507,8 +593,12 @@ export default function StatusPanel() {
   // immediately. Hero counts above already cover the full data set.
   const hiddenSubjects = subjects.filter(isQuietSubject);
   const hiddenRegularItems = regularItems.filter(item => isQuietItem(item, now));
+  const hiddenServers = sortedServers.filter(s => s.status === 'green');
   const hiddenCount = hiddenRegularItems.length
-    + hiddenSubjects.reduce((sum, s) => sum + s.total, 0);
+    + hiddenSubjects.reduce((sum, s) => sum + s.total + s.offlineCount, 0)
+    + hiddenServers.length;
+
+  const visibleServers = focusMode ? sortedServers.filter(s => s.status !== 'green') : sortedServers;
 
   const visibleSubjects = focusMode ? subjects.filter(s => !isQuietSubject(s)) : subjects;
 
@@ -518,33 +608,17 @@ export default function StatusPanel() {
         .filter(([, visible]) => visible.length > 0)
     : sources.map(([label, sourceItems]) => [label, sourceItems, sourceItems.length]);
 
-  // Overall aggregate across everything — each "connections" subject
-  // collapses to a single status (orange folds into yellow here, same as
-  // the tray icon) so one localized path issue doesn't read as a full outage.
-  // Acknowledged items read as 'blue' and fall through to green below, so
-  // they don't hold the hero red/yellow — they get their own count instead.
-  const regularStatuses = regularItems.map(item => effectiveItemStatus(item, now)).filter(Boolean);
-
-  const subjectStatuses = subjects.map(s => s.status === 'orange' ? 'yellow' : s.status);
-
-  const allStatuses = [...regularStatuses, ...subjectStatuses];
-
-  const aggregate =
-    allStatuses.includes('red')    ? 'red' :
-    allStatuses.includes('yellow') ? 'yellow' :
-    allStatuses.length             ? 'green' : 'grey';
+  // Overall aggregate — same rules as the tray icon (summarizeItems).
+  // Acknowledged items count as OK and get their own count; grey items from
+  // offline servers and brown (not reporting, still reachable) servers
+  // don't move it at all.
+  const { aggregate, redCount, yellowCount, greenCount, ackedCount, offlineServerCount } = summary;
 
   const heroColor  = STATUS_COLORS[aggregate]   || c.textTertiary;
   const heroBg     = c.statusBg[aggregate]      || c.panelBg;
   const heroBorder = c.statusBorder[aggregate]  || c.border;
 
   const heroLabels = { green: 'All Systems OK', yellow: 'Degraded', red: 'Issues Detected', grey: 'No Data' };
-
-  const redCount    = allStatuses.filter(s => s === 'red').length;
-  const yellowCount = allStatuses.filter(s => s === 'yellow').length;
-  const greenCount  = allStatuses.filter(s => s === 'green').length;
-  const ackedCount  = regularStatuses.filter(s => s === 'blue').length
-    + subjects.reduce((sum, s) => sum + s.ackedCount, 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -566,6 +640,7 @@ export default function StatusPanel() {
             {yellowCount > 0 && <span style={{ color: '#faad14' }}>{yellowCount} degraded</span>}
             {redCount    > 0 && <span style={{ color: '#ff4d4f' }}>{redCount} down</span>}
             {ackedCount  > 0 && <span style={{ color: STATUS_COLORS.blue }}>{ackedCount} acknowledged</span>}
+            {offlineServerCount > 0 && <span style={{ color: STATUS_COLORS.brown }}>{offlineServerCount} server{offlineServerCount !== 1 ? 's' : ''} not reporting</span>}
           </div>
         </div>
         <StatusIcon status={aggregate} size={22} />
@@ -610,7 +685,7 @@ export default function StatusPanel() {
 
       {/* Scrollable content — multi-location subjects, then one section per source */}
       <div style={{ flex: 1, overflow: 'auto', padding: '0 20px 16px' }}>
-        {visibleSubjects.length === 0 && visibleSources.length === 0 ? (
+        {visibleServers.length === 0 && visibleSubjects.length === 0 && visibleSources.length === 0 ? (
           <div style={{ padding: '32px 0', textAlign: 'center', color: c.textTertiary }}>
             <CheckCircleFilled style={{ fontSize: 28, color: '#52c41a', marginBottom: 8 }} />
             <div style={{ fontSize: 12, color: c.textSecondary }}>Everything's healthy</div>
@@ -620,6 +695,12 @@ export default function StatusPanel() {
           </div>
         ) : (
           <>
+            {visibleServers.length > 0 && (
+              <ServersSection
+                servers={visibleServers}
+                isLast={visibleSubjects.length === 0 && visibleSources.length === 0}
+              />
+            )}
             {visibleSubjects.map((subject, i) => (
               <ConnectionsSubjectGroup
                 key={subject.subjectId}

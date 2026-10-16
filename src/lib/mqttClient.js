@@ -4,11 +4,16 @@
 // the browser/GitHub Pages build (via mqtt.js's websocket transport) — so
 // there's one place that knows how to talk to the broker.
 import mqtt from 'mqtt';
-import { computeConnectionStatus, subjectAggregateStatus } from './connectionStatus';
+import {
+  computeConnectionStatus, isHeartbeatTopic, isHeartbeatStale, originKeyForTopic, summarizeItems,
+} from './connectionStatus';
 
 // "connections" is a broker-wide aggregation topic, independent of any
 // configured source: connections/<subjectId>/<projectId>/<systemId>/<id>.
 export const CONNECTIONS_WILDCARD = 'connections/#';
+
+// Every reporting server's liveness beacon: <projectId>/<systemId>/heartbeat.
+export const HEARTBEAT_WILDCARD = '+/+/heartbeat';
 
 export function topicsForSource(source) {
   const base = `${source.projectId}/${source.systemId}`;
@@ -51,7 +56,8 @@ export function buildConnectionUrl(settings) {
 }
 
 // Runs every 60s to recompute connection_status / connections_status items
-// that may have aged into yellow/red without new MQTT messages arriving.
+// that may have aged into yellow/red, and heartbeats that may have gone
+// stale, without new MQTT messages arriving.
 const STALENESS_CHECK_MS = 60_000;
 
 // handlers:
@@ -121,6 +127,8 @@ export function createMqttRuntime(initialSettings, initialRemovedTopics, handler
       }
       mqttClient.subscribe(CONNECTIONS_WILDCARD, { qos: 1 });
       console.log(`[MQTT] Subscribed: ${CONNECTIONS_WILDCARD}`);
+      mqttClient.subscribe(HEARTBEAT_WILDCARD, { qos: 1 });
+      console.log(`[MQTT] Subscribed: ${HEARTBEAT_WILDCARD}`);
     });
 
     mqttClient.on('message', (topic, message) => {
@@ -137,7 +145,20 @@ export function createMqttRuntime(initialSettings, initialRemovedTopics, handler
       try { payload = JSON.parse(message.toString()); } catch { return; }
 
       let type, sourceLabel;
-      if (topic.startsWith('connections/')) {
+      let extra = {};
+      if (isHeartbeatTopic(topic)) {
+        type = 'heartbeat';
+        const origin = originKeyForTopic(topic);
+        const matching = (settings.sources || []).filter((s) => `${s.projectId}/${s.systemId}` === origin);
+        sourceLabel = matching.find((s) => s.label)?.label || payload.label || origin;
+        extra = {
+          // Subjects (connections/<subjectId>) whose checks ping this
+          // server's site — configured per source in Settings.
+          reachabilitySubjects: [...new Set(matching.flatMap((s) => s.reachabilitySubjects || []))],
+          // This server's topics the user blocked — not "missing" checks.
+          blockedTopics: [...removedTopics.keys()].filter((k) => originKeyForTopic(k) === origin),
+        };
+      } else if (topic.startsWith('connections/')) {
         if (!payload.subjectId) return;
         type = 'connections_status';
         sourceLabel = payload.subjectLabel || payload.subjectId;
@@ -156,6 +177,8 @@ export function createMqttRuntime(initialSettings, initialRemovedTopics, handler
       if (type === 'connection_status' || type === 'connections_status') {
         if (payload.lastReceived) lastReceivedTracked = payload.lastReceived;
         computedStatus = computeConnectionStatus({ payload, lastReceivedTracked }, Date.now());
+      } else if (type === 'heartbeat') {
+        computedStatus = isHeartbeatStale({ payload }, Date.now()) ? 'stale' : 'alive';
       } else {
         // process_status: use payload.status directly
         computedStatus = payload.status || 'grey';
@@ -172,6 +195,7 @@ export function createMqttRuntime(initialSettings, initialRemovedTopics, handler
         lastReceivedTracked,
         lastUpdated: new Date().toISOString(),
         acknowledged: acknowledged.has(topic),
+        ...extra,
       });
 
       setConnectionState('live');
@@ -197,8 +221,14 @@ export function createMqttRuntime(initialSettings, initialRemovedTopics, handler
     let changed = false;
     const now = Date.now();
     for (const [key, item] of items) {
-      if (item.messageType !== 'connection_status' && item.messageType !== 'connections_status') continue;
-      const newStatus = computeConnectionStatus(item, now);
+      let newStatus;
+      if (item.messageType === 'heartbeat') {
+        newStatus = isHeartbeatStale(item, now) ? 'stale' : 'alive';
+      } else if (item.messageType === 'connection_status' || item.messageType === 'connections_status') {
+        newStatus = computeConnectionStatus(item, now);
+      } else {
+        continue;
+      }
       if (newStatus !== item.computedStatus) {
         items.set(key, { ...item, computedStatus: newStatus });
         changed = true;
@@ -293,42 +323,13 @@ export function createMqttRuntime(initialSettings, initialRemovedTopics, handler
 }
 
 // Aggregate connection state + per-item statuses down to a single tray/header
-// color. Mirrors the per-item status rules in connectionStatus.js so
-// "connections" subjects (checked from multiple locations) collapse the same
-// way everywhere. Acknowledged items count as green so a known issue doesn't
-// hold the tray red/yellow. `items` is the topicKey → item object as broadcast by the
-// runtime (same shape used by the renderer's monitor store).
+// color, using the same rules as the status panel's hero (summarizeItems in
+// connectionStatus.js): items from servers with a stale heartbeat are grey
+// and ignored, "connections" subjects collapse by majority vote, and
+// acknowledged items count as OK. `items` is the topicKey → item object as
+// broadcast by the runtime (same shape used by the renderer's monitor store).
 export function aggregateItemsStatus(items) {
   const values = Object.values(items || {});
   if (!values.length) return 'grey';
-
-  const statuses = [];
-  const subjectGroups = new Map();
-  const now = Date.now();
-
-  for (const item of values) {
-    if (item.acknowledged && item.messageType !== 'connections_status') {
-      statuses.push('green');
-    } else if (item.messageType === 'connections_status') {
-      const sid = item.payload?.subjectId;
-      if (!subjectGroups.has(sid)) subjectGroups.set(sid, []);
-      subjectGroups.get(sid).push(item);
-    } else if (item.messageType === 'connection_status') {
-      statuses.push(computeConnectionStatus(item, now));
-    } else {
-      statuses.push(item.computedStatus || 'grey');
-    }
-  }
-
-  for (const groupItems of subjectGroups.values()) {
-    const downCount = groupItems.filter((i) => !i.acknowledged && computeConnectionStatus(i, now) === 'red').length;
-    const status = subjectAggregateStatus(downCount, groupItems.length);
-    // 'orange' (localized path issue) degrades to 'yellow' rather than 'red'.
-    statuses.push(status === 'orange' ? 'yellow' : status);
-  }
-
-  if (!statuses.length) return 'grey';
-  if (statuses.includes('red'))    return 'red';
-  if (statuses.includes('yellow')) return 'yellow';
-  return 'green';
+  return summarizeItems(values, Date.now()).aggregate;
 }

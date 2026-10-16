@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import mqtt from 'mqtt';
 import { Form, Input, InputNumber, Button, Divider, message, Select, Switch, Segmented } from 'antd';
 import { SaveOutlined, PlusOutlined, DeleteOutlined, MoonOutlined, SunOutlined, ApiOutlined } from '@ant-design/icons';
-import { useSettingsStore } from '../store';
+import { useSettingsStore, useMonitorStore } from '../store';
 import { getColors } from '../theme';
 import { buildConnectionUrl } from '../lib/mqttClient';
 import * as runtime from '../lib/runtime';
@@ -19,6 +19,14 @@ export default function Settings({ onSaved }) {
   const setTheme = useSettingsStore((s) => s.setTheme);
   const c = getColors(mode);
   const isElectron = runtime.isElectron;
+
+  // Known "connections" subjects, offered as reachability choices per source.
+  const items = useMonitorStore((s) => s.items);
+  const subjectOptions = [...new Map(
+    Object.values(items)
+      .filter((i) => i.messageType === 'connections_status' && i.payload?.subjectId)
+      .map((i) => [i.payload.subjectId, { value: i.payload.subjectId, label: i.payload.subjectLabel || i.payload.subjectId }]),
+  ).values()].sort((a, b) => a.label.localeCompare(b.label));
 
   useEffect(() => {
     runtime.getAutostart().then(setAutostartState);
@@ -52,6 +60,7 @@ export default function Settings({ onSaved }) {
         label:     s.label,
         sourceKey: `${s.projectId}/${s.systemId}`,
         type:      s.type || 'connection_status',
+        reachabilitySubjects: s.reachabilitySubjects || [],
       })),
     });
   }, [storeSettings.mqttHost]);
@@ -67,6 +76,7 @@ export default function Settings({ onSaved }) {
           systemId:  parts[1]?.trim() || '',
           label:     s.label?.trim() || `Source ${i + 1}`,
           type:      s.type || 'connection_status',
+          reachabilitySubjects: s.reachabilitySubjects || [],
         };
       });
 
@@ -344,6 +354,20 @@ export default function Settings({ onSaved }) {
                       size="small"
                     />
                   </div>
+                  <Form.Item
+                    name={[name, 'reachabilitySubjects']}
+                    label={<span style={labelStyle}>Reached via (connections that ping this server's site)</span>}
+                    tooltip="If this server's heartbeat stops and these are down from the other locations, the site's internet is treated as down (red). If they're still up, the server is marked as not reporting (brown)."
+                    style={{ marginBottom: 8 }}
+                  >
+                    <Select
+                      mode="tags"
+                      allowClear
+                      placeholder="e.g. vance_fiber_wan"
+                      options={subjectOptions}
+                      style={{ background: c.inputBgAlt }}
+                    />
+                  </Form.Item>
                 </div>
               ))}
 

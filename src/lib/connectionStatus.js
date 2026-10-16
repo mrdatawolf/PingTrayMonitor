@@ -82,6 +82,7 @@ export function orangeSeverityColor(downCount, total) {
 // Per-item status for a connection_status item (computed live) or any
 // other item type (already-computed status).
 export function itemStatus(item, now) {
+  if (item.originOffline) return 'grey';
   return item.messageType === 'connection_status'
     ? computeConnectionStatus(item, now)
     : (item.computedStatus || 'grey');
@@ -93,6 +94,7 @@ export function itemStatus(item, now) {
 // items display as 'blue' and are left out of the tray/aggregate status, so
 // a known issue doesn't mask new ones.
 export function effectiveItemStatus(item, now) {
+  if (item.originOffline) return 'grey';
   return item.acknowledged ? 'blue' : itemStatus(item, now);
 }
 
@@ -112,7 +114,10 @@ export function hasRecentInstability(payload) {
 }
 
 // Groups items by payload.subjectId and reduces each group's per-location
-// computedStatus values down to a single subject-level status.
+// computedStatus values down to a single subject-level status. Locations
+// whose reporting server is offline (item.originOffline, see
+// withOriginStatus) are left out of the vote entirely — `total` counts only
+// live locations — and a subject with no live locations is 'grey'.
 export function groupConnectionsBySubject(connectionsItems, now) {
   const subjectMap = new Map();
   for (const item of connectionsItems) {
@@ -124,16 +129,18 @@ export function groupConnectionsBySubject(connectionsItems, now) {
   }
 
   return [...subjectMap.values()].map((group) => {
-    const downCount = group.items.filter((item) => !item.acknowledged && computeConnectionStatus(item, now) === 'red').length;
-    const ackedCount = group.items.filter((item) => item.acknowledged).length;
-    const instableCount = group.items.filter((item) => hasRecentInstability(item.payload)).length;
+    const liveItems = group.items.filter((item) => !item.originOffline);
+    const downCount = liveItems.filter((item) => !item.acknowledged && computeConnectionStatus(item, now) === 'red').length;
+    const ackedCount = liveItems.filter((item) => item.acknowledged).length;
+    const instableCount = liveItems.filter((item) => hasRecentInstability(item.payload)).length;
     return {
       ...group,
       downCount,
       ackedCount,
       instableCount,
-      total: group.items.length,
-      status: subjectAggregateStatus(downCount, group.items.length),
+      offlineCount: group.items.length - liveItems.length,
+      total: liveItems.length,
+      status: liveItems.length ? subjectAggregateStatus(downCount, liveItems.length) : 'grey',
     };
   });
 }
@@ -163,7 +170,7 @@ export function formatRelative(isoString) {
 // topic) for payloads that carry no timestamp of their own.
 function lastActivityTimestamp(item) {
   const { payload } = item;
-  return payload?.checkedAt || item.lastReceivedTracked || payload?.lastReceived || item.lastUpdated;
+  return payload?.checkedAt || payload?.publishedAt || item.lastReceivedTracked || payload?.lastReceived || item.lastUpdated;
 }
 
 // An item whose underlying check hasn't reported in this long is treated
@@ -185,6 +192,9 @@ export function isGhostItem(item, now) {
 // report — the "everything's fine, nothing to look at" case that focus
 // mode hides by default.
 export function isQuietItem(item, now) {
+  // Offline-origin items aren't actionable on their own — the server row in
+  // the Servers section carries that problem.
+  if (item.originOffline) return true;
   if (item.messageType === 'connection_status') {
     return computeConnectionStatus(item, now) === 'green' && !hasRecentInstability(item.payload);
   }
@@ -195,5 +205,156 @@ export function isQuietItem(item, now) {
 // if every location is up and none flapped recently. Subjects are shown or
 // hidden as a whole.
 export function isQuietSubject(subject) {
-  return subject.status === 'green' && subject.instableCount === 0 && subject.ackedCount === 0;
+  return (subject.status === 'green' || subject.status === 'grey') && subject.instableCount === 0 && subject.ackedCount === 0;
+}
+
+// ─── Server heartbeats ─────────────────────────────────────────────────────
+
+// Each reporting server publishes <projectId>/<systemId>/heartbeat about
+// once a minute. Every check/connection topic carries the same
+// projectId/systemId, so we can tell whether the server that produced an
+// item is still alive before trusting (or alarming on) what it last said.
+
+const DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 60;
+export const HEARTBEAT_STALE_MULTIPLIER = 3;
+
+// A just-(re)started server gets this long to publish every check it lists
+// in its heartbeat before the missing ones are flagged.
+const MISSING_CHECK_GRACE_MS = 10 * 60_000;
+
+export function isHeartbeatTopic(topicKey) {
+  const parts = (topicKey || '').split('/');
+  return parts.length === 3 && parts[2] === 'heartbeat';
+}
+
+// "projectId/systemId" of the server that published a topic:
+//   connections/<subjectId>/<projectId>/<systemId>/<id>
+//   <projectId>/<systemId>/checks/<id> | /status | /heartbeat
+export function originKeyForTopic(topicKey) {
+  const parts = (topicKey || '').split('/');
+  if (parts[0] === 'connections') return parts.length >= 5 ? `${parts[2]}/${parts[3]}` : null;
+  return parts.length >= 3 ? `${parts[0]}/${parts[1]}` : null;
+}
+
+// Judged by the server's own publishedAt rather than when we received it,
+// so a retained heartbeat replayed on reconnect doesn't make a dead server
+// look alive.
+export function heartbeatLastSeen(hb) {
+  return hb.payload?.publishedAt || hb.lastUpdated;
+}
+
+export function isHeartbeatStale(hb, now) {
+  const ts = heartbeatLastSeen(hb);
+  if (!ts) return true;
+  const intervalMs = (hb.payload?.intervalSeconds || DEFAULT_HEARTBEAT_INTERVAL_SECONDS) * 1000;
+  return now - new Date(ts).getTime() > HEARTBEAT_STALE_MULTIPLIER * intervalMs;
+}
+
+// Returns the items with `originOffline: true` set on every non-heartbeat
+// item whose server has a stale heartbeat. Servers we've never seen a
+// heartbeat from are left alone (old behavior), so a server that doesn't
+// publish heartbeats yet isn't greyed out.
+export function withOriginStatus(items, now) {
+  const offline = new Set();
+  for (const item of items) {
+    if (item.messageType === 'heartbeat' && isHeartbeatStale(item, now)) {
+      offline.add(originKeyForTopic(item.topicKey));
+    }
+  }
+  if (!offline.size) return items;
+  return items.map((item) =>
+    item.messageType !== 'heartbeat' && offline.has(originKeyForTopic(item.topicKey))
+      ? { ...item, originOffline: true }
+      : item);
+}
+
+// One entry per heartbeat-publishing server:
+//   green  — heartbeat current, every check it lists is reporting
+//   yellow — heartbeat current, but some listed checks never showed up
+//   red    — heartbeat stale AND the subjects that ping this server's site
+//            are down (majority rule) — its internet is likely down
+//   brown  — heartbeat stale but the site still answers pings (or we have
+//            no reachability data) — the monitoring service itself stopped
+// `items` must already be passed through withOriginStatus; `subjects` is
+// groupConnectionsBySubject's output for the same items.
+export function computeServers(items, subjects, now) {
+  const present = new Set(items.map((i) => i.topicKey));
+  const subjectById = new Map(subjects.map((s) => [s.subjectId, s]));
+
+  return items.filter((i) => i.messageType === 'heartbeat').map((hb) => {
+    const origin = originKeyForTopic(hb.topicKey);
+    const p = hb.payload || {};
+    const stale = isHeartbeatStale(hb, now);
+
+    const expected = [
+      ...(p.checks || []).map((c) => ({ topicKey: `${origin}/checks/${c.id}`, label: c.label || c.id })),
+      ...(p.connectionTests || []).filter((t) => t.subjectId).map((t) => ({
+        topicKey: `connections/${t.subjectId}/${origin}/${t.id}`, label: t.label || t.id,
+      })),
+    ];
+    const blocked = new Set(hb.blockedTopics || []);
+    const startedAt = p.serverStarted ? new Date(p.serverStarted).getTime() : 0;
+    const pastGrace = now - startedAt > MISSING_CHECK_GRACE_MS;
+    const missing = stale || !pastGrace
+      ? []
+      : expected.filter((e) => !present.has(e.topicKey) && !blocked.has(e.topicKey));
+
+    const reachSubjectIds = [...new Set([...(hb.reachabilitySubjects || []), ...(p.siteSubjectIds || [])])];
+    const reachSubjects = reachSubjectIds.map((id) => subjectById.get(id)).filter((s) => s && s.status !== 'grey');
+    const reachability =
+      !reachSubjects.length                          ? 'unknown' :
+      reachSubjects.some((s) => s.status !== 'red') ? 'up' : 'down';
+
+    const status = !stale
+      ? (missing.length ? 'yellow' : 'green')
+      : (reachability === 'down' ? 'red' : 'brown');
+
+    return {
+      topicKey: hb.topicKey,
+      originKey: origin,
+      label: hb.sourceLabel || origin,
+      lastSeen: heartbeatLastSeen(hb),
+      serverStarted: p.serverStarted || null,
+      stale,
+      expectedCount: expected.length,
+      missing,
+      reachSubjects,
+      reachability,
+      status,
+    };
+  });
+}
+
+// Everything the tray, header, and hero need, computed once with the same
+// rules. Grey (offline-origin) items and brown (not-reporting but
+// reachable) servers never move the overall status; acknowledged ('blue')
+// items count as OK.
+export function summarizeItems(items, now) {
+  const all = withOriginStatus(items, now);
+  const connectionsItems = all.filter((i) => i.messageType === 'connections_status');
+  const regularItems = all.filter((i) => i.messageType !== 'connections_status' && i.messageType !== 'heartbeat');
+  const subjects = groupConnectionsBySubject(connectionsItems, now);
+  const servers = computeServers(all, subjects, now);
+
+  const regularStatuses = regularItems.map((i) => effectiveItemStatus(i, now));
+  // 'orange' (localized path issue) degrades to 'yellow' rather than 'red'.
+  const subjectStatuses = subjects.map((s) => (s.status === 'orange' ? 'yellow' : s.status));
+  const serverStatuses = servers.map((s) => s.status);
+
+  const counted = [...regularStatuses, ...subjectStatuses, ...serverStatuses]
+    .filter((s) => s === 'red' || s === 'yellow' || s === 'green' || s === 'blue');
+
+  const aggregate =
+    counted.includes('red')    ? 'red' :
+    counted.includes('yellow') ? 'yellow' :
+    counted.length             ? 'green' : 'grey';
+
+  return {
+    all, regularItems, subjects, servers, aggregate,
+    redCount:    counted.filter((s) => s === 'red').length,
+    yellowCount: counted.filter((s) => s === 'yellow').length,
+    greenCount:  counted.filter((s) => s === 'green').length,
+    ackedCount:  regularStatuses.filter((s) => s === 'blue').length + subjects.reduce((sum, s) => sum + s.ackedCount, 0),
+    offlineServerCount: servers.filter((s) => s.stale).length,
+  };
 }

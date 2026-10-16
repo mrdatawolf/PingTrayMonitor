@@ -183,6 +183,43 @@ majority-down subject (red) is treated as a full outage. If every location
 is currently up but one or more flapped recently, the subject shows an
 "Up now, but N of M locations flapped recently" note instead.
 
+### Server Heartbeats (`+/+/heartbeat`)
+
+Each reporting server publishes `<projectId>/<systemId>/heartbeat` about once
+a minute:
+
+```json
+{
+  "projectId": "…", "systemId": "…",
+  "serverStarted": "2026-09-01T21:12:09.565Z",
+  "checks": [{ "id": "ibm_icmp", "type": "icmp", "label": "IBM Server (ICMP)" }],
+  "connectionTests": [{ "id": "grayson_fiber_from_vance", "type": "icmp", "label": "…", "subjectId": "grayson_fiber_wan", "subjectLabel": "…" }],
+  "publishedAt": "2026-10-16T22:55:00.031Z"
+}
+```
+
+A heartbeat is **stale** when `publishedAt` is more than 3× the interval old
+(`intervalSeconds`, default 60s → 3 minutes). Every check, `/status`, and
+`connections/…/<projectId>/<systemId>/…` item published by a server with a
+stale heartbeat turns **grey**: it doesn't count toward the tray, header, or
+hero status, and it's left out of the multi-location majority vote. Servers
+that have never sent a heartbeat keep the old behavior.
+
+A **Servers** section in the status panel shows one row per heartbeat:
+
+| Server status | Meaning | Affects tray |
+|---|---|---|
+| Green — Online | Heartbeat current, every listed check is reporting | — |
+| Yellow — Checks missing | Heartbeat current, but a check in `checks`/`connectionTests` has never published (after a 10-minute grace from `serverStarted`) | Yellow |
+| Red — Internet down | Heartbeat stale **and** the subjects that ping this site are down from the other locations (majority rule) | Red |
+| Brown — Not reporting | Heartbeat stale but the site still answers pings, or no reachability data — the monitoring service has likely stopped | No |
+
+Which subjects "ping this server's site" is set per source in Settings
+(**Reached via**), or by the server itself with an optional
+`"siteSubjectIds": ["vance_fiber_wan"]` field in the heartbeat. With more
+than one (e.g. fiber + backup link), the site counts as reachable if any of
+them is up.
+
 ### Stale Entry Cleanup
 
 If an entry's underlying check hasn't reported in over 24 hours, it's
