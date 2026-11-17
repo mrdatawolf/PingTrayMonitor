@@ -287,7 +287,9 @@ export function computeServers(items, subjects, now) {
     const stale = isHeartbeatStale(hb, now);
 
     const expected = [
-      ...(p.checks || []).map((c) => ({ topicKey: `${origin}/checks/${c.id}`, label: c.label || c.id })),
+      // Its own checks are only visible if that server is a configured
+      // source (connections/# is subscribed broker-wide, checks are not).
+      ...(hb.checksSubscribed === false ? [] : p.checks || []).map((c) => ({ topicKey: `${origin}/checks/${c.id}`, label: c.label || c.id })),
       ...(p.connectionTests || []).filter((t) => t.subjectId).map((t) => ({
         topicKey: `connections/${t.subjectId}/${origin}/${t.id}`, label: t.label || t.id,
       })),

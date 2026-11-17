@@ -157,6 +157,9 @@ export function createMqttRuntime(initialSettings, initialRemovedTopics, handler
           reachabilitySubjects: [...new Set(matching.flatMap((s) => s.reachabilitySubjects || []))],
           // This server's topics the user blocked — not "missing" checks.
           blockedTopics: [...removedTopics.keys()].filter((k) => originKeyForTopic(k) === origin),
+          // We only subscribe to <origin>/checks/+ for configured sources, so
+          // a heartbeat's own check list can only be verified for those.
+          checksSubscribed: matching.some((s) => s.type !== 'process_status'),
         };
       } else if (topic.startsWith('connections/')) {
         if (!payload.subjectId) return;
