@@ -139,7 +139,7 @@ function DeleteButton({ topicKey }) {
       style={{
         background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px',
         fontSize: 12, lineHeight: 1, flexShrink: 0, marginLeft: 2,
-        color: confirming ? '#ff4d4f' : hovered ? c.textSecondary : c.border,
+        color: confirming ? '#ff4d4f' : hovered ? c.textPrimary : c.textSecondary,
         transition: 'color 0.15s',
         WebkitAppRegion: 'no-drag',
       }}
@@ -175,7 +175,7 @@ function AckButton({ item, status }) {
       style={{
         background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px',
         fontSize: 12, lineHeight: 1, flexShrink: 0, marginLeft: 2,
-        color: item.acknowledged ? STATUS_COLORS.blue : hovered ? c.textSecondary : c.border,
+        color: item.acknowledged ? STATUS_COLORS.blue : hovered ? c.textPrimary : c.textSecondary,
         transition: 'color 0.15s',
         WebkitAppRegion: 'no-drag',
       }}
