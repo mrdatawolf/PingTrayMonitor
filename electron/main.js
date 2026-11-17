@@ -138,6 +138,7 @@ function buildContextMenu(status) {
     { type: 'separator' },
     { label: 'Open Details', click: () => showWindow() },
     { label: 'Open History', click: () => showHistoryWindow() },
+    { label: 'Reload Windows', click: () => reloadAllWindows() },
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() },
   ]);
@@ -149,6 +150,104 @@ function updateTray(status) {
   tray.setToolTip(`Ping Monitor — ${statusLabel(status)}`);
   tray.setContextMenu(buildContextMenu(status));
 }
+
+// ─── Window health ────────────────────────────────────────────────────────────
+
+// Packaged builds have no DevTools or menu, so a renderer that dies during
+// startup (GPU process not ready at login, a thrown error, a failed load)
+// leaves a blank window with no way out. Every window gets: a log of what
+// went wrong, automatic reloads on crash/failed load/empty page, and a
+// Ctrl+R / F5 reload shortcut.
+
+const LOG_FILE = path.join(app.getPath('userData'), 'logs', 'renderer.log');
+const LOG_MAX_BYTES = 512 * 1024;
+
+function logEvent(msg) {
+  const line = `${new Date().toISOString()} ${msg}\n`;
+  console.error('[Window]', msg);
+  try {
+    fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true });
+    try {
+      if (fs.statSync(LOG_FILE).size > LOG_MAX_BYTES) fs.renameSync(LOG_FILE, `${LOG_FILE}.1`);
+    } catch { /* no log yet */ }
+    fs.appendFileSync(LOG_FILE, line);
+  } catch { /* logging must never break the app */ }
+}
+
+const MAX_AUTO_RELOADS = 3;
+const EMPTY_CHECK_MS = 4000;
+
+function guardWindow(win, name) {
+  const wc = win.webContents;
+  let autoReloads = 0;
+  let emptyTimer = null;
+
+  const reload = (why) => {
+    if (win.isDestroyed()) return;
+    if (autoReloads >= MAX_AUTO_RELOADS) {
+      logEvent(`${name}: ${why} — auto-reload limit reached, press Ctrl+R to retry`);
+      return;
+    }
+    autoReloads += 1;
+    logEvent(`${name}: ${why} — reloading (${autoReloads}/${MAX_AUTO_RELOADS})`);
+    setTimeout(() => { if (!win.isDestroyed()) wc.reloadIgnoringCache(); }, 500 * autoReloads);
+  };
+
+  wc.on('render-process-gone', (_e, d) => reload(`renderer gone (${d.reason}, code ${d.exitCode})`));
+  wc.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
+    if (isMainFrame && code !== -3) reload(`load failed ${code} ${desc} ${url}`); // -3 = aborted by a newer load
+  });
+  wc.on('unresponsive', () => logEvent(`${name}: unresponsive`));
+  wc.on('preload-error', (_e, p, err) => logEvent(`${name}: preload error ${p}: ${err?.stack || err}`));
+  wc.on('console-message', (_e, level, message, line, sourceId) => {
+    if (level >= 3) logEvent(`${name}: console error: ${message} (${sourceId}:${line})`);
+  });
+
+  // The page loaded but React never rendered anything: treat as a failed start.
+  wc.on('did-finish-load', () => {
+    clearTimeout(emptyTimer);
+    emptyTimer = setTimeout(async () => {
+      if (win.isDestroyed()) return;
+      try {
+        const n = await wc.executeJavaScript(
+          "(document.getElementById('root') || {}).childElementCount || 0", true);
+        if (n === 0) reload('page rendered nothing');
+        else autoReloads = 0; // healthy — allow future auto-recoveries
+      } catch (err) {
+        reload(`health check failed: ${err.message}`);
+      }
+    }, EMPTY_CHECK_MS);
+  });
+
+  wc.on('before-input-event', (e, input) => {
+    if (input.type !== 'keyDown') return;
+    const mod = input.control || input.meta;
+    const key = input.key.toLowerCase();
+    if (key === 'f5' || (mod && key === 'r')) {
+      e.preventDefault();
+      autoReloads = 0;
+      logEvent(`${name}: manual reload`);
+      wc.reloadIgnoringCache();
+    } else if (key === 'f12' || (mod && input.shift && key === 'i')) {
+      e.preventDefault();
+      wc.toggleDevTools();
+    }
+  });
+
+  win.on('closed', () => clearTimeout(emptyTimer));
+}
+
+function reloadAllWindows() {
+  for (const win of [mainWindow, historyWindow]) {
+    if (win && !win.isDestroyed()) win.webContents.reloadIgnoringCache();
+  }
+}
+
+app.on('child-process-gone', (_e, d) => {
+  logEvent(`${d.type} process gone (${d.reason}, code ${d.exitCode})`);
+  // Windows painted by a crashed GPU process can stay blank; repaint them.
+  if (d.type === 'GPU') setTimeout(reloadAllWindows, 1000);
+});
 
 // ─── Main window ──────────────────────────────────────────────────────────────
 
@@ -175,6 +274,7 @@ function createWindow() {
       contextIsolation: true,
     },
   });
+  guardWindow(mainWindow, 'details');
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
@@ -234,6 +334,7 @@ function showHistoryWindow() {
       contextIsolation: true,
     },
   });
+  guardWindow(historyWindow, 'history');
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     historyWindow.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}#history`);
@@ -318,6 +419,10 @@ app.whenReady().then(() => {
 
   tray = new Tray(icons.grey);
   updateTray(currentTrayStatus());
+
+  // Load the details popup in the background now so the first tray click
+  // shows a page that has already rendered (and been health-checked).
+  createWindow();
 
   // Sleep isn't a clean stop for the recorder: mark it so the History view
   // shows the gap, then resume with the current broker state.
