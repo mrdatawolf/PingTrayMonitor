@@ -28,5 +28,12 @@ contextBridge.exposeInMainWorld('electron', {
   getTheme: () => ipcRenderer.invoke('theme:get'),
   setTheme: (mode) => ipcRenderer.invoke('theme:set', mode),
 
+  // History window
+  openHistory:       ()                => ipcRenderer.invoke('history:open'),
+  getHistory:        (rangeMs)         => ipcRenderer.invoke('history:query', rangeMs),
+  getHistoryBaselines: ()               => ipcRenderer.invoke('history:baselines'),
+  getHistoryPatterns:  (rangeMs)        => ipcRenderer.invoke('history:patterns', rangeMs),
+  getHistorySamples: (keys, from, to)  => ipcRenderer.invoke('history:samples', keys, from, to), // → { topicKey: samples[] }
+
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
 });

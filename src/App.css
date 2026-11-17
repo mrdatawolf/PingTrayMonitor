@@ -76,3 +76,15 @@ button, input, a, .ant-btn, .ant-tabs-tab, .ant-switch {
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: var(--color-scroll-track); }
 ::-webkit-scrollbar-thumb { background: var(--color-scroll-thumb); border-radius: 3px; }
+
+/* ─── History window ─────────────────────────────────────────────────────── */
+/* A normal framed window: no drag regions, and text (times, labels) can be
+   selected and copied. */
+body.history-window {
+  -webkit-app-region: no-drag;
+  user-select: text;
+}
+
+.history-strip-row:hover .history-row-label {
+  text-decoration: underline;
+}

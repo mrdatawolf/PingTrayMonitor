@@ -1,10 +1,11 @@
-import { app, BrowserWindow, Tray, Menu, ipcMain, shell, Notification, screen } from 'electron';
+import { app, BrowserWindow, Tray, Menu, ipcMain, shell, Notification, screen, powerMonitor } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
 import squirrelStartup from 'electron-squirrel-startup';
 import { icons } from './icons';
 import { createMqttRuntime, aggregateItemsStatus } from '../src/lib/mqttClient.js';
+import { createHistoryStore } from './historyStore.js';
 
 // Only present in a dev checkout (gitignored, never packaged into a
 // distributed build) — silently a no-op otherwise, leaving persisted
@@ -97,6 +98,7 @@ function setAutostart(enabled) {
 
 let tray = null;
 let mainWindow = null;
+let historyWindow = null;
 let isQuitting = false;
 let settings = loadSettings();
 
@@ -135,6 +137,7 @@ function buildContextMenu(status) {
     { label: `Status: ${statusLabel(status)}`,       enabled: false },
     { type: 'separator' },
     { label: 'Open Details', click: () => showWindow() },
+    { label: 'Open History', click: () => showHistoryWindow() },
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() },
   ]);
@@ -205,6 +208,45 @@ function showWindow() {
   mainWindow.focus();
 }
 
+// ─── History window ───────────────────────────────────────────────────────────
+
+// A normal, resizable window (unlike the tray popup) — the same renderer
+// bundle, routed to the History view by the #history hash.
+function showHistoryWindow() {
+  if (historyWindow && !historyWindow.isDestroyed()) {
+    if (historyWindow.isMinimized()) historyWindow.restore();
+    historyWindow.show();
+    historyWindow.focus();
+    return;
+  }
+
+  historyWindow = new BrowserWindow({
+    width: 1180,
+    height: 820,
+    minWidth: 760,
+    minHeight: 520,
+    title: 'Ping Monitor — History',
+    autoHideMenuBar: true,
+    backgroundColor: settings.theme === 'light' ? '#f0f2f5' : '#141414',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    historyWindow.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}#history`);
+  } else {
+    historyWindow.loadFile(
+      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
+      { hash: 'history' },
+    );
+  }
+
+  historyWindow.on('closed', () => { historyWindow = null; });
+}
+
 function broadcastItems(itemsObj) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('mqtt:items', itemsObj);
@@ -237,21 +279,31 @@ function sendProcessNotification(sourceLabel, status, payload) {
 
 // ─── MQTT runtime ─────────────────────────────────────────────────────────────
 
+// Local history: recording starts before the runtime connects so no early
+// messages are missed. PINGTRAY_HISTORY_DIR overrides the location (dev / testing).
+const history = createHistoryStore(
+  process.env.PINGTRAY_HISTORY_DIR || path.join(app.getPath('userData'), 'history'),
+);
+history.start(currentConnectionState);
+
 // Connects on creation and reconnects on settings:save. Connection
 // state/items/removed-topics changes flow back through these handlers to
 // update the tray, push to the renderer over IPC, and persist removedTopics.
 const runtime = createMqttRuntime(settings, settings.removedTopics || [], {
   onItems: (itemsObj) => {
     currentItems = itemsObj;
+    history.observe(itemsObj);
     updateTray(currentTrayStatus());
     broadcastItems(itemsObj);
   },
   onConnectionState: (state) => {
     currentConnectionState = state;
+    history.connection(state);
     updateTray(currentTrayStatus());
     broadcastConnectionState(state);
   },
   onRemovedTopics: (removedTopicsArray) => {
+    history.removed(removedTopicsArray.map((r) => r.topicKey));
     settings = { ...settings, removedTopics: removedTopicsArray };
     saveSettings(settings);
     broadcastRemovedTopics(removedTopicsArray);
@@ -267,6 +319,11 @@ app.whenReady().then(() => {
   tray = new Tray(icons.grey);
   updateTray(currentTrayStatus());
 
+  // Sleep isn't a clean stop for the recorder: mark it so the History view
+  // shows the gap, then resume with the current broker state.
+  powerMonitor.on('suspend', () => history.stop());
+  powerMonitor.on('resume', () => history.start(currentConnectionState));
+
   tray.on('click', () => {
     if (mainWindow && mainWindow.isVisible()) {
       mainWindow.hide();
@@ -278,7 +335,10 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => { isQuitting = true; });
 app.on('window-all-closed', () => {});
-app.on('will-quit', () => runtime.end());
+app.on('will-quit', () => {
+  runtime.end();
+  history.stop();
+});
 
 // ─── IPC handlers ─────────────────────────────────────────────────────────────
 
@@ -315,6 +375,19 @@ ipcMain.handle('items:setAcknowledged', (_e, topicKey, on) => {
   runtime.setAcknowledged(topicKey, !!on);
   return { ok: true };
 });
+
+// History queries span at most 31 days (retention is 30).
+const clampRange = (rangeMs) => Math.max(60_000, Math.min(Number(rangeMs) || 86_400_000, 31 * 86_400_000));
+ipcMain.handle('history:open', () => { showHistoryWindow(); return { ok: true }; });
+ipcMain.handle('history:query', (_e, rangeMs) => history.query({
+  rangeMs: clampRange(rangeMs),
+  hidden: runtime.getSnapshot().removedTopics.map((r) => r.topicKey),
+}));
+ipcMain.handle('history:baselines', () => history.baselines());
+ipcMain.handle('history:patterns', (_e, rangeMs) => history.patterns({ rangeMs: clampRange(rangeMs) }));
+ipcMain.handle('history:samples', (_e, keys, from, to) => history.samples({
+  keys: (Array.isArray(keys) ? keys : [keys]).map(String), from: Number(from), to: Number(to),
+}));
 
 ipcMain.handle('shell:openExternal', (_e, url) => shell.openExternal(url));
 
