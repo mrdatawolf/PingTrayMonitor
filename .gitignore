@@ -14,3 +14,6 @@ distribute/
 .vite/build/preload.js
 Examples/*
 /dist
+.vite/build/icons.js
+.vite/build/main.js
+.vite/build/preload.js
