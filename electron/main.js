@@ -29,6 +29,7 @@ const SETTINGS_FILE = path.join(app.getPath('userData'), 'settings.json');
 const DEFAULT_SETTINGS = {
   theme: 'dark',
   removedTopics: [],
+  acknowledgedTopics: [], // topicKeys marked "seen" — survive restarts until the item next reports OK
   mqttHost: '24.121.212.206',
   mqttPort: 1883,
   mqttWsPort: 9001,
@@ -138,14 +139,22 @@ function buildContextMenu(status) {
     { type: 'separator' },
     { label: 'Open Details', click: () => showWindow() },
     { label: 'Open History', click: () => showHistoryWindow() },
+    { label: 'Settings…',    click: () => showWindow('settings') },
     { label: 'Reload Windows', click: () => reloadAllWindows() },
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() },
   ]);
 }
 
+// Only touch the tray when the status actually changes. updateTray runs on
+// every MQTT message; on Linux (StatusNotifierItem/AppIndicator) each
+// setContextMenu call replaces the exported menu, which closes an open
+// right-click menu — so rebuilding it per message made it flicker shut.
+let trayStatusShown = null;
+
 function updateTray(status) {
-  if (!tray) return;
+  if (!tray || status === trayStatusShown) return;
+  trayStatusShown = status;
   tray.setImage(icons[status] || icons.grey);
   tray.setToolTip(`Ping Monitor — ${statusLabel(status)}`);
   tray.setContextMenu(buildContextMenu(status));
@@ -295,8 +304,10 @@ function createWindow() {
   });
 }
 
-function showWindow() {
+// `view` ('status' | 'settings' | 'blocked') switches the popup's page.
+function showWindow(view) {
   if (!mainWindow) createWindow();
+  if (view) mainWindow.webContents.send('app:navigate', view);
   const trayBounds = tray.getBounds();
   const windowBounds = mainWindow.getBounds();
   const x = Math.round(trayBounds.x + trayBounds.width / 2 - windowBounds.width / 2);
@@ -409,8 +420,12 @@ const runtime = createMqttRuntime(settings, settings.removedTopics || [], {
     saveSettings(settings);
     broadcastRemovedTopics(removedTopicsArray);
   },
+  onAcknowledged: (topicKeys) => {
+    settings = { ...settings, acknowledgedTopics: topicKeys };
+    saveSettings(settings);
+  },
   onProcessStatusChange: sendProcessNotification,
-});
+}, settings.acknowledgedTopics || []);
 
 // ─── App lifecycle ─────────────────────────────────────────────────────────────
 
@@ -484,10 +499,17 @@ ipcMain.handle('items:setAcknowledged', (_e, topicKey, on) => {
 // History queries span at most 31 days (retention is 30).
 const clampRange = (rangeMs) => Math.max(60_000, Math.min(Number(rangeMs) || 86_400_000, 31 * 86_400_000));
 ipcMain.handle('history:open', () => { showHistoryWindow(); return { ok: true }; });
-ipcMain.handle('history:query', (_e, rangeMs) => history.query({
-  rangeMs: clampRange(rangeMs),
-  hidden: runtime.getSnapshot().removedTopics.map((r) => r.topicKey),
-}));
+ipcMain.handle('history:query', async (_e, rangeMs) => {
+  const snapshot = runtime.getSnapshot();
+  return {
+    ...(await history.query({
+      rangeMs: clampRange(rangeMs),
+      hidden: snapshot.removedTopics.map((r) => r.topicKey),
+    })),
+    // Currently-acknowledged topics, so the History view can sink them too.
+    acknowledged: Object.values(snapshot.items).filter((i) => i.acknowledged).map((i) => i.topicKey),
+  };
+});
 ipcMain.handle('history:baselines', () => history.baselines());
 ipcMain.handle('history:patterns', (_e, rangeMs) => history.patterns({ rangeMs: clampRange(rangeMs) }));
 ipcMain.handle('history:samples', (_e, keys, from, to) => history.samples({

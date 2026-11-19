@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('electron', {
   // Live pushes from main process
   onItems: (cb) => ipcRenderer.on('mqtt:items', (_e, items) => cb(items)),
   onConnection: (cb) => ipcRenderer.on('mqtt:connection', (_e, state) => cb(state)),
+  onNavigate:   (cb) => ipcRenderer.on('app:navigate', (_e, view) => cb(view)),
 
   // One-time fetch for initial render
   getItems: () => ipcRenderer.invoke('items:get'),

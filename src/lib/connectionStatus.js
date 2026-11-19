@@ -191,6 +191,25 @@ export function isGhostItem(item, now) {
 // True if this item is currently healthy with nothing noteworthy to
 // report — the "everything's fine, nothing to look at" case that focus
 // mode hides by default.
+// True when a group's only problems are ones the user already acknowledged:
+// at least one live item is acknowledged and every other live item is OK.
+// Such groups sink to the bottom of the lists so new issues stay on top.
+export function isAcknowledgedGroup(items, now) {
+  let acked = false;
+  for (const item of items) {
+    if (item.originOffline) continue;
+    if (item.acknowledged) { acked = true; continue; }
+    if (itemStatus(item, now) !== 'green') return false;
+  }
+  return acked;
+}
+
+// Sort comparator wrapper: acknowledged items after everything else, then
+// `tiebreak` within each half.
+export function ackedLast(tiebreak) {
+  return (a, b) => (!!a.acknowledged - !!b.acknowledged) || tiebreak(a, b);
+}
+
 export function isQuietItem(item, now) {
   // Offline-origin items aren't actionable on their own — the server row in
   // the Servers section carries that problem.

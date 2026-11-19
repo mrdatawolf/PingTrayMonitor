@@ -64,8 +64,9 @@ const STALENESS_CHECK_MS = 60_000;
 //   onItems(itemsObj)
 //   onConnectionState(state)            'grey' | 'live' | 'black'
 //   onRemovedTopics(removedTopicsArray)
+//   onAcknowledged(topicKeysArray)      — acknowledged set changed (persist it)
 //   onProcessStatusChange(sourceLabel, computedStatus, payload)  — only while live
-export function createMqttRuntime(initialSettings, initialRemovedTopics, handlers = {}) {
+export function createMqttRuntime(initialSettings, initialRemovedTopics, handlers = {}, initialAcknowledged = []) {
   let settings = initialSettings;
   let mqttClient = null;
   let connectionState = 'grey';
@@ -75,8 +76,21 @@ export function createMqttRuntime(initialSettings, initialRemovedTopics, handler
   const items = new Map();
 
   // topicKeys the user acknowledged ("seen") while not green. Kept outside
-  // `items` so it survives reconnects; cleared per topic on its next green.
-  const acknowledged = new Set();
+  // `items` so it survives reconnects, and seeded from the persisted list so
+  // it survives app restarts; cleared per topic on its next green.
+  const acknowledged = new Set(initialAcknowledged || []);
+
+  function emitAcknowledged() {
+    handlers.onAcknowledged?.([...acknowledged]);
+  }
+
+  // Drops a topic's acknowledgement (it went green / was removed). Returns
+  // true if anything changed so callers can persist.
+  function clearAcknowledged(topic) {
+    if (!acknowledged.delete(topic)) return false;
+    emitAcknowledged();
+    return true;
+  }
 
   // topicKey → { topicKey, sourceLabel, label }
   const removedTopics = new Map((initialRemovedTopics || []).map((r) => [r.topicKey, r]));
@@ -187,7 +201,7 @@ export function createMqttRuntime(initialSettings, initialRemovedTopics, handler
         computedStatus = payload.status || 'grey';
       }
 
-      if (computedStatus === 'green') acknowledged.delete(topic);
+      if (computedStatus === 'green') clearAcknowledged(topic);
 
       items.set(topic, {
         topicKey: topic,
@@ -233,7 +247,8 @@ export function createMqttRuntime(initialSettings, initialRemovedTopics, handler
         continue;
       }
       if (newStatus !== item.computedStatus) {
-        items.set(key, { ...item, computedStatus: newStatus });
+        const acked = newStatus === 'green' ? (clearAcknowledged(key), false) : item.acknowledged;
+        items.set(key, { ...item, computedStatus: newStatus, acknowledged: acked });
         changed = true;
       }
     }
@@ -245,6 +260,7 @@ export function createMqttRuntime(initialSettings, initialRemovedTopics, handler
   function removeTopicInternal(topicKey) {
     const item = items.get(topicKey);
     items.delete(topicKey);
+    clearAcknowledged(topicKey);
     removedTopics.set(topicKey, {
       topicKey,
       sourceLabel: item?.sourceLabel || '',
@@ -304,6 +320,7 @@ export function createMqttRuntime(initialSettings, initialRemovedTopics, handler
       else    acknowledged.delete(topicKey);
       items.set(topicKey, { ...item, acknowledged: !!on });
       emitItems();
+      emitAcknowledged();
     },
 
     restoreItem(topicKey) {

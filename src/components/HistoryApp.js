@@ -1299,8 +1299,21 @@ export default function HistoryApp() {
 
   const groups = useMemo(() => {
     if (!data) return [];
-    if (!problemsOnly) return data.groups;
-    return data.groups
+    // Acknowledged checks (marked "seen" in the details popup) sink to the
+    // bottom of their group, and groups whose only current problems are
+    // acknowledged sink below every other group.
+    const acked = new Set(data.acknowledged || []);
+    const all = data.groups.map((g) => ({
+      ...g,
+      series: g.series
+        .map((s) => (acked.has(s.key) ? { ...s, acknowledged: true } : s))
+        .sort((a, b) => !!a.acknowledged - !!b.acknowledged),
+    }));
+    const isAckedGroup = (g) => g.series.some((s) => s.acknowledged)
+      && g.series.every((s) => s.acknowledged || s.lastStatus === 'green');
+    const ordered = [...all.filter((g) => !isAckedGroup(g)), ...all.filter(isAckedGroup)];
+    if (!problemsOnly) return ordered;
+    return ordered
       .map((g) => ({ ...g, series: g.series.filter((s) => s.ms.red + s.ms.yellow + s.ms.silent > 0) }))
       .filter((g) => g.series.length);
   }, [data, problemsOnly]);
@@ -1434,6 +1447,12 @@ export default function HistoryApp() {
                           title={`${s.label}${s.lastStatus ? ` — last ${statusText(s, s.lastStatus).toLowerCase()}` : ''}`}>
                           <Dot status={s.lastStatus} c={c} />
                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
+                          {s.acknowledged && (
+                            <span title="Acknowledged — ignored until this check next reports OK"
+                              style={{ fontSize: 9, color: '#1677ff', border: '1px solid #1677ff', borderRadius: 3, padding: '0 3px', flexShrink: 0 }}>
+                              ACK
+                            </span>
+                          )}
                           {s.checkType && TYPE_CHIP[s.checkType] && (
                             <span style={{ fontSize: 9, color: c.textTertiary, border: `1px solid ${c.borderSubtle}`, borderRadius: 3, padding: '0 3px', flexShrink: 0 }}>
                               {TYPE_CHIP[s.checkType]}

@@ -9,7 +9,7 @@ import { useMonitorStore, useThemeColors } from '../store';
 import {
   hasRecentInstability, formatRelative, isGhostItem, isQuietItem, isQuietSubject,
   orangeSeverityColor, effectiveItemStatus, isLikelyCorrelatedFailure, isStale,
-  itemStatus, summarizeItems,
+  itemStatus, summarizeItems, isAcknowledgedGroup, ackedLast,
 } from '../lib/connectionStatus';
 import * as runtime from '../lib/runtime';
 import StaleCleanupModal from './StaleCleanupModal';
@@ -353,7 +353,7 @@ function SourceSection({ label, sourceItems, totalCount = sourceItems.length, no
 
   const [expanded, setExpanded] = useState(!correlated);
 
-  const sorted = [...sourceItems].sort((a, b) => {
+  const sorted = [...sourceItems].sort(ackedLast((a, b) => {
     const aLabel = a.messageType === 'connection_status'
       ? (a.payload?.label || a.payload?.id || '')
       : a.sourceLabel;
@@ -361,7 +361,7 @@ function SourceSection({ label, sourceItems, totalCount = sourceItems.length, no
       ? (b.payload?.label || b.payload?.id || '')
       : b.sourceLabel;
     return aLabel.localeCompare(bLabel);
-  });
+  }));
 
   return (
     <div style={{ marginBottom: isLast ? 0 : 16 }}>
@@ -434,9 +434,9 @@ function ConnectionsSubjectGroup({ subjectLabel, items, total, downCount, ackedC
     status === 'orange' ? severityColor :
     instableCount > 0   ? '#fa8c16' : c.textTertiary;
 
-  const sorted = [...items].sort((a, b) =>
+  const sorted = [...items].sort(ackedLast((a, b) =>
     (a.payload?.label || '').localeCompare(b.payload?.label || '')
-  );
+  ));
 
   return (
     <div style={{ marginBottom: isLast ? 0 : 16 }}>
@@ -608,6 +608,34 @@ export default function StatusPanel() {
         .filter(([, visible]) => visible.length > 0)
     : sources.map(([label, sourceItems]) => [label, sourceItems, sourceItems.length]);
 
+  // Page order: servers, subjects, sources — except groups whose only
+  // problems are already acknowledged, which sink below everything else
+  // (under an "Acknowledged" divider) until they recover.
+  const activeSections = [];
+  const ackedSections = [];
+  if (visibleServers.length > 0) {
+    activeSections.push({
+      key: 'servers',
+      render: (isLast) => <ServersSection servers={visibleServers} isLast={isLast} />,
+    });
+  }
+  for (const subject of visibleSubjects) {
+    (isAcknowledgedGroup(subject.items, now) ? ackedSections : activeSections).push({
+      key: `subject:${subject.subjectId}`,
+      render: (isLast) => <ConnectionsSubjectGroup {...subject} now={now} isLast={isLast} />,
+    });
+  }
+  for (const [label, sourceItems, totalCount] of visibleSources) {
+    (isAcknowledgedGroup(sourceItems, now) ? ackedSections : activeSections).push({
+      key: `source:${label}`,
+      render: (isLast) => (
+        <SourceSection label={label} sourceItems={sourceItems} totalCount={totalCount} now={now} isLast={isLast} />
+      ),
+    });
+  }
+  const sections = [...activeSections, ...ackedSections];
+  const firstAckedIndex = ackedSections.length ? activeSections.length : -1;
+
   // Overall aggregate — same rules as the tray icon (summarizeItems).
   // Acknowledged items count as OK and get their own count; grey items from
   // offline servers and brown (not reporting, still reachable) servers
@@ -694,32 +722,21 @@ export default function StatusPanel() {
             </div>
           </div>
         ) : (
-          <>
-            {visibleServers.length > 0 && (
-              <ServersSection
-                servers={visibleServers}
-                isLast={visibleSubjects.length === 0 && visibleSources.length === 0}
-              />
-            )}
-            {visibleSubjects.map((subject, i) => (
-              <ConnectionsSubjectGroup
-                key={subject.subjectId}
-                {...subject}
-                now={now}
-                isLast={i === visibleSubjects.length - 1 && visibleSources.length === 0}
-              />
-            ))}
-            {visibleSources.map(([label, sourceItems, totalCount], i) => (
-              <SourceSection
-                key={label}
-                label={label}
-                sourceItems={sourceItems}
-                totalCount={totalCount}
-                now={now}
-                isLast={i === visibleSources.length - 1}
-              />
-            ))}
-          </>
+          sections.map((section, i) => (
+            <React.Fragment key={section.key}>
+              {i === firstAckedIndex && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  margin: '20px 0 4px', fontSize: 10, color: STATUS_COLORS.blue,
+                  textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600,
+                }}>
+                  <span>Acknowledged</span>
+                  <span style={{ flex: 1, height: 1, background: c.borderFaint }} />
+                </div>
+              )}
+              {section.render(i === sections.length - 1)}
+            </React.Fragment>
+          ))
         )}
       </div>
 

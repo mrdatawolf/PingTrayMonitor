@@ -20,6 +20,7 @@ const STORAGE_KEY = 'pingtray.settings';
 const WEB_DEFAULT_SETTINGS = {
   theme: 'dark',
   removedTopics: [],
+  acknowledgedTopics: [],
   mqttHost: '',
   mqttPort: 1883,
   mqttWsPort: 9001,
@@ -79,16 +80,25 @@ export function init() {
       setRemovedTopics(removedTopics);
       saveWebSettings({ ...loadWebSettings(), removedTopics });
     },
+    onAcknowledged: (acknowledgedTopics) => {
+      saveWebSettings({ ...loadWebSettings(), acknowledgedTopics });
+    },
   };
 
   webRuntime = isDemo
     ? createDemoRuntime(runtimeHandlers)
-    : createMqttRuntime(settings, settings.removedTopics, runtimeHandlers);
+    : createMqttRuntime(settings, settings.removedTopics, runtimeHandlers, settings.acknowledgedTopics);
 
   const snapshot = webRuntime.getSnapshot();
   setItems(snapshot.items);
   setConnectionState(snapshot.connectionState);
   setRemovedTopics(snapshot.removedTopics);
+}
+
+// Lets the main process switch the popup's page (e.g. tray menu → Settings).
+// No-op outside Electron.
+export function onNavigate(cb) {
+  if (isElectron) window.electron.onNavigate?.(cb);
 }
 
 export async function saveSettings(newSettings) {

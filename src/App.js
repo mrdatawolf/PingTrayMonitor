@@ -27,6 +27,7 @@ export default function App() {
 
   useEffect(() => {
     runtime.init();
+    runtime.onNavigate((v) => setView(v));
   }, []);
 
   useEffect(() => {
